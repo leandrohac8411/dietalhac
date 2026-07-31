@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "FormaFit — plano de dieta e treino personalizado" },
       {
         property: "og:description",
-        content: "Cálculos corporais, estratégia nutricional, dieta, treino e check-in semanal.",
+        content: "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução.",
       },
     ],
   }),
