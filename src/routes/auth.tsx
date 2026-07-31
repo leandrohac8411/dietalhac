@@ -262,7 +262,6 @@ function AuthPage() {
             </Tabs>
           )}
 
-          ) : null}
         </Card>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
