@@ -12,8 +12,8 @@ export type PlanFoodItem = {
   carbs_g: number;
   fat_g: number;
   fiber_g: number;
-  preparation?: string;
-  notes?: string;
+  preparation?: string | undefined;
+  notes?: string | undefined;
 };
 
 export type PlanMeal = {
@@ -161,9 +161,9 @@ export type PlanWorkoutExercise = {
   sets: number;
   reps: string;
   rest_seconds: number;
-  notes?: string;
-  difficulty?: string;
-  alternative_name?: string;
+  notes?: string | undefined;
+  difficulty?: string | undefined;
+  alternative_name?: string | undefined;
 };
 
 export type PlanWorkout = {
