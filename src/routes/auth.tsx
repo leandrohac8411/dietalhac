@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -131,18 +130,6 @@ function AuthPage() {
     }
     toast.success("E-mail enviado", { description: "Verifique sua caixa de entrada." });
     setRecovering(false);
-  }
-
-  async function handleGoogle() {
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (result.error) {
-      toast.error("Não foi possível entrar com o Google");
-      return;
-    }
-    if (result.redirected) return;
-    void navigate({ to: "/dashboard", replace: true });
   }
 
   return (
@@ -275,17 +262,6 @@ function AuthPage() {
             </Tabs>
           )}
 
-          {!recovering ? (
-            <>
-              <div className="my-5 flex items-center gap-3">
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">ou</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-              <Button variant="outline" className="w-full" onClick={() => void handleGoogle()}>
-                Continuar com Google
-              </Button>
-            </>
           ) : null}
         </Card>
 
