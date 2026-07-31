@@ -43,9 +43,9 @@ function Dashboard() {
   const bmi = weight && height ? calcBmi(weight, height) : null;
   const bmr = weight && height ? calcBmr({ weightKg: weight, heightCm: height, age, sex: p?.biological_sex }) : null;
   const factor = activityFactor({
-    routine: prefs.data?.routine_level,
-    trainingDays: prefs.data?.training_days,
-    dailySteps: prefs.data?.daily_steps,
+    routine: prefs.data?.routine_level ?? null,
+    trainingDays: prefs.data?.training_days ?? null,
+    dailySteps: prefs.data?.daily_steps ?? null,
   });
   const tdee = bmr ? calcTdee(bmr, factor) : null;
   const waterMl = (water.data ?? []).reduce((acc, w) => acc + (w.amount_ml ?? 0), 0);
@@ -71,7 +71,7 @@ function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Peso atual" value={`${formatNumber(weight)} kg`} icon={<Scale className="h-4 w-4" />} />
-        <StatCard label="IMC" value={formatNumber(bmi)} hint={bmi ? bmiClassification(bmi) : undefined} />
+        <StatCard label="IMC" value={formatNumber(bmi)} hint={bmi ? bmiClassification(bmi) : ""} />
         <StatCard label="Manutenção" value={formatKcal(tdee)} hint={`Fator ${factor}`} />
         <StatCard
           label="Meta calórica"
