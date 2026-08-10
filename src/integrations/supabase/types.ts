@@ -241,6 +241,7 @@ export type Database = {
           portion: number
           protein_g: number
           sodium_mg: number
+          tags: string[]
           unit: string
           updated_at: string
         }
@@ -259,6 +260,7 @@ export type Database = {
           portion?: number
           protein_g?: number
           sodium_mg?: number
+          tags?: string[]
           unit?: string
           updated_at?: string
         }
@@ -277,6 +279,7 @@ export type Database = {
           portion?: number
           protein_g?: number
           sodium_mg?: number
+          tags?: string[]
           unit?: string
           updated_at?: string
         }
