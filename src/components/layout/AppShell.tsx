@@ -176,33 +176,38 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Button>
       </header>
 
-      <main className="w-full px-4 pb-28 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pl-[18.5rem]">
+      <main className="w-full px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pl-[18.5rem]">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>
 
-      {/* Barra inferior (mobile) */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-        <div className="grid grid-cols-5">
-          {MOBILE_NAV.map((item) => {
+      {/* Barra inferior (mobile) — pílula flutuante só com ícones */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] lg:hidden">
+        <div className="mobile-nav-shell mx-auto grid max-w-[390px] grid-cols-5">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 300 70"
+            preserveAspectRatio="none"
+            className="mobile-nav-shape"
+          >
+            <path d="M30 8C16 8 6 19 6 35S16 62 30 62C43 62 47 54 60 54S77 62 90 62 107 54 120 54 137 62 150 62 167 54 180 54 197 62 210 62 227 54 240 54 257 62 270 62C284 62 294 51 294 35S284 8 270 8C257 8 253 16 240 16S223 8 210 8 193 16 180 16 163 8 150 8 133 16 120 16 103 8 90 8 73 16 60 16 43 8 30 8Z" />
+          </svg>
+          {MOBILE_NAV.map((item, index) => {
             const active = pathname === item.to;
             return (
               <Link
                 key={item.to}
                 to={item.to}
+                aria-label={item.label}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
-                  active ? "text-foreground" : "text-muted-foreground",
+                  "mobile-nav-item relative z-10 grid place-items-center transition-[transform,color,background-color,box-shadow] duration-200",
+                  index === 2 && "mobile-nav-item-center",
+                  active
+                    ? "mobile-nav-item-active text-[#101410]"
+                    : "text-[#101410]/55 hover:text-[#101410]",
                 )}
               >
-                <span
-                  className={cn(
-                    "grid h-8 w-12 place-items-center rounded-full transition-colors",
-                    active && "bg-accent text-accent-foreground",
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                </span>
-                {item.label}
+                <item.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2.4 : 2} />
               </Link>
             );
           })}

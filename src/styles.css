@@ -210,6 +210,7 @@
   --success-foreground: oklch(0.18 0.02 150);
   --warning: oklch(0.8 0.15 78);
   --warning-foreground: oklch(0.22 0.03 78);
+  --chart-2: oklch(0.78 0.02 160);
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
   --ring: oklch(0.72 0.15 130);
@@ -285,4 +286,58 @@
 .elevate:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lifted);
+}
+
+.mobile-nav-shell {
+  position: relative;
+  isolation: isolate;
+  width: min(20rem, calc(100vw - 1.25rem));
+  height: 4.65rem;
+  align-items: center;
+}
+
+.mobile-nav-shape {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: rgb(244 247 241 / 0.98);
+  filter: drop-shadow(0 11px 13px rgb(0 0 0 / 0.32));
+}
+
+.mobile-nav-item {
+  width: 2.8rem;
+  height: 2.8rem;
+  justify-self: center;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.mobile-nav-item-active {
+  border-radius: 50%;
+  background: rgb(16 20 16 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(16 20 16 / 0.06);
+}
+
+.mobile-nav-item-center {
+  width: 3.15rem;
+  height: 3.15rem;
+  border-radius: 50%;
+  background: #9bea36;
+  color: #101410;
+  box-shadow:
+    0 0 0 0.16rem #f4f7f1,
+    0 7px 14px -8px rgb(95 165 23 / 0.72);
+}
+
+.mobile-nav-item-center svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  stroke-width: 2.4;
+}
+
+.mobile-nav-item:active {
+  transform: scale(0.94);
 }

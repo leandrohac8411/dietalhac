@@ -178,6 +178,7 @@ function WorkoutCard({
       icon={<Dumbbell className="h-4 w-4" />}
       accent="blue"
       action={<AddExercisePopover workoutId={workout.id} exercises={exercises} />}
+      className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
       {list.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum exercício neste treino.</p>
@@ -206,12 +207,12 @@ function ExerciseRow({ ex, media }: { ex: WorkoutExerciseRow; media: string | nu
 
   return (
     <div className="py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <MediaThumb media={media} name={ex.exercise_name} />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold">{ex.exercise_name}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{ex.exercise_name}</p>
               {ex.difficulty ? (
                 <span
                   className={cn(
@@ -406,8 +407,9 @@ function AddExercisePopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="secondary" size="sm">
-          <Plus className="mr-1 h-4 w-4" /> Adicionar
+        <Button variant="secondary" size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3">
+          <Plus className="h-4 w-4 sm:mr-1" />
+          <span className="sr-only sm:not-sr-only">Adicionar</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
