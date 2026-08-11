@@ -340,8 +340,9 @@ function Stepper({
 }
 
 function MediaThumb({ media, name }: { media: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
   const isVideo = !!media && /\.mp4(\?|$)/i.test(media);
-  if (!media) {
+  if (!media || failed) {
     return (
       <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
         <Dumbbell className="h-5 w-5" />
@@ -359,13 +360,31 @@ function MediaThumb({ media, name }: { media: string | null; name: string }) {
           {isVideo ? (
             <video
               src={media}
+              autoPlay
+              loop
               muted
               playsInline
-              preload="metadata"
+              preload="auto"
+              disablePictureInPicture
+              onLoadedMetadata={(event) => {
+                event.currentTarget.currentTime = 0.05;
+              }}
+              onCanPlay={(event) => {
+                void event.currentTarget.play().catch(() => {
+                  event.currentTarget.currentTime = 0.05;
+                });
+              }}
+              onError={() => setFailed(true)}
               className="h-full w-full object-cover"
             />
           ) : (
-            <img src={media} alt="" className="h-full w-full object-cover" />
+            <img
+              src={media}
+              alt=""
+              loading="lazy"
+              onError={() => setFailed(true)}
+              className="h-full w-full object-cover"
+            />
           )}
           <span className="absolute inset-0 grid place-items-center bg-black/25 opacity-0 transition-opacity group-hover:opacity-100">
             <Play className="h-5 w-5 fill-white text-white" />
