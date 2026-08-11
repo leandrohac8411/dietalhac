@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
-import { generateMealPlan } from "@/lib/plan-generator";
+import { generateMealPlan, generateWorkoutPlan } from "@/lib/plan-generator";
 import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
 
 export type Profile = Tables<"profiles">;
@@ -12,6 +12,7 @@ export type MealRow = Tables<"meals">;
 export type MealItemRow = Tables<"meal_items">;
 export type WorkoutRow = Tables<"workouts">;
 export type WorkoutExerciseRow = Tables<"workout_exercises">;
+export type Exercise = Tables<"exercises">;
 export type WeightLog = Tables<"weight_logs">;
 export type WaterLog = Tables<"water_logs">;
 export type Checkin = Tables<"weekly_checkins">;
@@ -650,6 +651,177 @@ export function useDeleteMealItem() {
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["mealPlan"] }),
+  });
+}
+
+/** Ajusta o horário de uma refeição. */
+export function useUpdateMealTime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ mealId, scheduled_time }: { mealId: string; scheduled_time: string }) => {
+      const { error } = await supabase.from("meals").update({ scheduled_time }).eq("id", mealId);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mealPlan"] }),
+  });
+}
+
+/**
+ * Gera e persiste o treino a partir das preferências (dias, duração, local,
+ * experiência) e do objetivo. Desativa o plano anterior.
+ */
+export function useGenerateWorkout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const uid = await requireUserId();
+
+      const { data: goal } = await supabase
+        .from("user_goals")
+        .select("*")
+        .eq("user_id", uid)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const { data: prefs } = await supabase
+        .from("user_preferences")
+        .select("*")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      const { data: exercises, error: eErr } = await supabase
+        .from("exercises")
+        .select("id,name,muscle_group,place,difficulty,alternative_name")
+        .eq("is_active", true);
+      if (eErr) throw eErr;
+      if (!exercises || exercises.length === 0)
+        throw new Error("Catálogo de exercícios vazio. Aplique o seed do banco antes de gerar.");
+
+      const place = prefs?.training_place ?? "gym";
+      const days = prefs?.training_days ?? 3;
+      const durationMin = prefs?.training_duration_min ?? 60;
+
+      const { split, workouts } = generateWorkoutPlan({
+        exercises,
+        days,
+        durationMin,
+        place,
+        experience: prefs?.experience_level ?? null,
+        goal: goal?.goal_type ?? "condicionamento",
+      });
+
+      await supabase
+        .from("workout_plans")
+        .update({ is_active: false })
+        .eq("user_id", uid)
+        .eq("is_active", true);
+
+      const { data: wp, error: wpErr } = await supabase
+        .from("workout_plans")
+        .insert({
+          user_id: uid,
+          name: "Meu treino",
+          split_type: split,
+          days_per_week: days,
+          duration_min: durationMin,
+          place,
+          is_active: true,
+        })
+        .select("id")
+        .single();
+      if (wpErr) throw wpErr;
+
+      const { data: insertedWorkouts, error: wErr } = await supabase
+        .from("workouts")
+        .insert(
+          workouts.map((w, i) => ({
+            user_id: uid,
+            workout_plan_id: wp.id,
+            name: w.name,
+            muscle_groups: w.muscle_groups,
+            weekday: w.weekday,
+            estimated_min: w.estimated_min,
+            sort_order: i,
+          })),
+        )
+        .select("id, sort_order");
+      if (wErr) throw wErr;
+
+      const idBySort = new Map((insertedWorkouts ?? []).map((row) => [row.sort_order, row.id]));
+      const exPayload = workouts.flatMap((w, i) =>
+        w.exercises.map((ex, j) => ({
+          user_id: uid,
+          workout_id: idBySort.get(i)!,
+          exercise_name: ex.exercise_name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest_seconds: ex.rest_seconds,
+          difficulty: ex.difficulty ?? null,
+          alternative_name: ex.alternative_name ?? null,
+          notes: ex.notes ?? null,
+          sort_order: j,
+        })),
+      );
+      if (exPayload.length > 0) {
+        const { error: iErr } = await supabase.from("workout_exercises").insert(exPayload);
+        if (iErr) throw iErr;
+      }
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
+  });
+}
+
+/** Ajusta séries, repetições, descanso ou carga de um exercício. */
+export function useUpdateWorkoutExercise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: Partial<{ sets: number; reps: string; rest_seconds: number; load_kg: number | null }>;
+    }) => {
+      const { error } = await supabase.from("workout_exercises").update(patch).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
+  });
+}
+
+/** Remove um exercício do treino. */
+export function useDeleteWorkoutExercise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("workout_exercises").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
+  });
+}
+
+/** Adiciona um exercício do catálogo a um treino. */
+export function useAddWorkoutExercise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ workoutId, exercise }: { workoutId: string; exercise: Exercise }) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("workout_exercises").insert({
+        user_id: uid,
+        workout_id: workoutId,
+        exercise_id: exercise.id,
+        exercise_name: exercise.name,
+        sets: 3,
+        reps: "10-12",
+        rest_seconds: 60,
+        difficulty: exercise.difficulty,
+        alternative_name: exercise.alternative_name,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
   });
 }
 

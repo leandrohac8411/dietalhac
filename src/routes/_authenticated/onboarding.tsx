@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ClipboardList, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,10 @@ import {
   calcAge,
   calcBmr,
   calcTdee,
+  deriveMealTimes,
   formatKcal,
   goalFeasibility,
+  mealGapWarnings,
 } from "@/lib/fitness";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
@@ -137,6 +139,15 @@ const HEALTH_FLAGS: { k: HealthKey; l: string }[] = [
 
 const STEPS = ["Objetivo", "Atividade", "Alimentação", "Saúde", "Revisão"];
 
+const MEAL_LABELS = [
+  "Café da manhã",
+  "Lanche da manhã",
+  "Almoço",
+  "Lanche da tarde",
+  "Jantar",
+  "Ceia",
+];
+
 /* ---------- Estado do formulário ---------- */
 
 type FormState = {
@@ -151,12 +162,16 @@ type FormState = {
   routine_level: string;
   daily_steps: string;
   sleep_hours: string;
+  wake_time: string;
+  sleep_time: string;
   training_days: string;
   training_duration_min: string;
+  training_time: string;
   experience_level: string;
   training_place: string;
   equipment: string[];
   meals_per_day: string;
+  meal_times: string[];
   dietary_restrictions: string[];
   liked_foods: string;
   disliked_foods: string;
@@ -183,12 +198,16 @@ const INITIAL: FormState = {
   routine_level: "",
   daily_steps: "",
   sleep_hours: "",
+  wake_time: "06:30",
+  sleep_time: "23:00",
   training_days: "3",
   training_duration_min: "60",
+  training_time: "",
   experience_level: "",
   training_place: "",
   equipment: [],
   meals_per_day: "5",
+  meal_times: [],
   dietary_restrictions: [],
   liked_foods: "",
   disliked_foods: "",
@@ -354,12 +373,15 @@ function Onboarding() {
       routine_level: pr?.routine_level ?? f.routine_level,
       daily_steps: str(pr?.daily_steps),
       sleep_hours: str(pr?.sleep_hours),
+      wake_time: pr?.wake_time || f.wake_time,
+      sleep_time: pr?.sleep_time || f.sleep_time,
       training_days: str(pr?.training_days) || f.training_days,
       training_duration_min: str(pr?.training_duration_min) || f.training_duration_min,
       experience_level: pr?.experience_level ?? f.experience_level,
       training_place: pr?.training_place ?? f.training_place,
       equipment: pr?.equipment ?? f.equipment,
       meals_per_day: str(pr?.meals_per_day) || f.meals_per_day,
+      meal_times: pr?.meal_times && pr.meal_times.length > 0 ? pr.meal_times : f.meal_times,
       dietary_restrictions: pr?.dietary_restrictions ?? f.dietary_restrictions,
       liked_foods: str(pr?.liked_foods),
       disliked_foods: str(pr?.disliked_foods),
@@ -386,6 +408,23 @@ function Onboarding() {
     }));
   }, [profile, prefs, goal, screening]);
 
+  // Deriva os horários das refeições quando a quantidade muda (mantém edições manuais).
+  useEffect(() => {
+    const count = Math.min(Math.max(Number(form.meals_per_day) || 5, 3), 6);
+    if (form.meal_times.length !== count) {
+      setForm((f) => ({
+        ...f,
+        meal_times: deriveMealTimes({
+          mealsPerDay: count,
+          wake: f.wake_time,
+          sleep: f.sleep_time,
+          trainingTime: f.training_time,
+          trainingDurationMin: Number(f.training_duration_min) || null,
+        }),
+      }));
+    }
+  }, [form.meals_per_day, form.meal_times.length]);
+
   if (profile.isLoading) return <LoadingBlock rows={4} />;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -395,6 +434,26 @@ function Onboarding() {
     setForm((f) => {
       const cur = f[key];
       return { ...f, [key]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
+    });
+
+  // Recalcula os horários pela rotina (sobrescreve edições manuais).
+  const recalcTimes = () =>
+    setForm((f) => ({
+      ...f,
+      meal_times: deriveMealTimes({
+        mealsPerDay: Math.min(Math.max(Number(f.meals_per_day) || 5, 3), 6),
+        wake: f.wake_time,
+        sleep: f.sleep_time,
+        trainingTime: f.training_time,
+        trainingDurationMin: Number(f.training_duration_min) || null,
+      }),
+    }));
+
+  const setMealTime = (i: number, value: string) =>
+    setForm((f) => {
+      const next = [...f.meal_times];
+      next[i] = value;
+      return { ...f, meal_times: next };
     });
 
   const riskFlags =
@@ -487,12 +546,15 @@ function Onboarding() {
           routine_level: form.routine_level,
           daily_steps: int(form.daily_steps),
           sleep_hours: num(form.sleep_hours),
+          wake_time: form.wake_time || null,
+          sleep_time: form.sleep_time || null,
           training_days: int(form.training_days),
           training_duration_min: int(form.training_duration_min),
           experience_level: form.experience_level,
           training_place: form.training_place,
           equipment: form.equipment,
           meals_per_day: int(form.meals_per_day),
+          meal_times: form.meal_times,
           dietary_restrictions: form.dietary_restrictions,
           liked_foods: form.liked_foods || null,
           disliked_foods: form.disliked_foods || null,
@@ -541,7 +603,7 @@ function Onboarding() {
     <div className="mx-auto max-w-2xl space-y-6">
       <header>
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <Sparkles className="h-4 w-4 text-accent" />
+          <ClipboardList className="h-4 w-4 text-accent" />
           Questionário inicial
         </div>
         <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{STEPS[step]}</h1>
@@ -658,16 +720,24 @@ function Onboarding() {
                   onChange={(e) => set("daily_steps", e.target.value)}
                 />
               </Field>
-              <Field label="Horas de sono">
+              <Field label="Que horas acorda">
                 <Input
-                  type="number"
-                  step="0.5"
-                  inputMode="decimal"
-                  value={form.sleep_hours}
-                  onChange={(e) => set("sleep_hours", e.target.value)}
+                  type="time"
+                  value={form.wake_time}
+                  onChange={(e) => set("wake_time", e.target.value)}
+                />
+              </Field>
+              <Field label="Que horas dorme">
+                <Input
+                  type="time"
+                  value={form.sleep_time}
+                  onChange={(e) => set("sleep_time", e.target.value)}
                 />
               </Field>
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Usamos esses horários para montar as refeições na sua rotina.
+            </p>
           </SectionCard>
 
           <SectionCard title="Treino">
@@ -700,6 +770,13 @@ function Onboarding() {
                   options={["30", "45", "60", "90"].map((v) => ({ v, l: v }))}
                   value={form.training_duration_min}
                   onChange={(v) => set("training_duration_min", v)}
+                />
+              </Field>
+              <Field label="Horário do treino" hint="Para não marcar refeição no meio do treino">
+                <Input
+                  type="time"
+                  value={form.training_time}
+                  onChange={(e) => set("training_time", e.target.value)}
                 />
               </Field>
             </div>
@@ -738,6 +815,33 @@ function Onboarding() {
                 />
               </Field>
             </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Horários das refeições"
+            description="Calculados pela sua rotina — ajuste se quiser."
+            action={
+              <Button type="button" variant="ghost" size="sm" onClick={recalcTimes}>
+                <Clock className="mr-1 h-4 w-4" /> Recalcular
+              </Button>
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-3">
+              {form.meal_times.map((t, i) => (
+                <Field key={i} label={MEAL_LABELS[i] ?? `Refeição ${i + 1}`}>
+                  <Input type="time" value={t} onChange={(e) => setMealTime(i, e.target.value)} />
+                </Field>
+              ))}
+            </div>
+            {mealGapWarnings(form.meal_times).length > 0 ? (
+              <div className="mt-4 space-y-2">
+                {mealGapWarnings(form.meal_times).map((w, i) => (
+                  <AlertNote key={i} tone="warning">
+                    {w}
+                  </AlertNote>
+                ))}
+              </div>
+            ) : null}
           </SectionCard>
 
           <SectionCard title="Preferências e alergias">

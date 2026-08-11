@@ -181,3 +181,35 @@
 @utility text-balance-tight {
   text-wrap: balance;
 }
+
+/* Fundo do app com brilhos de cor sutis (premium, colorido). */
+@utility app-bg {
+  background:
+    radial-gradient(1100px 560px at 100% -8%, oklch(0.82 0.19 128 / 0.14), transparent 58%),
+    radial-gradient(900px 520px at -8% 4%, oklch(0.66 0.13 205 / 0.1), transparent 55%),
+    radial-gradient(700px 500px at 60% 110%, oklch(0.78 0.15 78 / 0.08), transparent 60%),
+    var(--color-background);
+}
+
+.dark .app-bg {
+  background:
+    radial-gradient(1100px 560px at 100% -8%, oklch(0.82 0.19 128 / 0.16), transparent 58%),
+    radial-gradient(900px 520px at -8% 4%, oklch(0.66 0.13 205 / 0.14), transparent 55%),
+    var(--color-background);
+}
+
+/* Painel com gradiente de acento (heros, destaques). */
+@utility gradient-accent {
+  background: linear-gradient(135deg, oklch(0.86 0.19 128) 0%, oklch(0.78 0.17 150) 100%);
+}
+
+/* Elevação animada no hover de cards interativos. */
+@utility elevate {
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+.elevate:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lifted);
+}

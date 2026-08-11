@@ -140,7 +140,8 @@ export function buildScenarios(input: {
     acelerado: "Acelerado",
   };
   const descriptions: Record<ScenarioKey, string> = {
-    confortavel: "Evolução mais lenta, maior flexibilidade e menor restrição — mais fácil de manter.",
+    confortavel:
+      "Evolução mais lenta, maior flexibilidade e menor restrição — mais fácil de manter.",
     equilibrado: "Evolução moderada, com equilíbrio entre resultado e flexibilidade.",
     acelerado: "Evolução mais rápida, com maior controle e menos margem para desvios.",
   };
@@ -248,7 +249,8 @@ export function checkinRecommendation(input: {
     tone = "warning";
     items.push("Sua adesão ficou abaixo de 60% — não vamos reduzir calorias agora.");
     items.push("Escolha 2 refeições para padronizar durante a semana.");
-    if (input.hunger >= 8) items.push("Aumente alimentos com fibra e proteína para controlar a fome.");
+    if (input.hunger >= 8)
+      items.push("Aumente alimentos com fibra e proteína para controlar a fome.");
     return { title, tone, items };
   }
 
@@ -294,5 +296,109 @@ export function formatKcal(v?: number | null) {
 
 export function formatNumber(v?: number | null, digits = 1) {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
-  return v.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return v.toLocaleString("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+/* ---------- Horários das refeições ---------- */
+
+/** "HH:MM" -> minutos desde 00:00 (ou null se inválido). */
+export function parseHM(s?: string | null): number | null {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** minutos -> "HH:MM" (envolve em 24h). */
+export function formatHM(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Deriva horários das refeições a partir da rotina, distribuindo entre acordar
+ * e dormir e desviando da janela de treino (refeição pós-treino ao terminar).
+ */
+export function deriveMealTimes(input: {
+  mealsPerDay: number;
+  wake?: string | null;
+  sleep?: string | null;
+  trainingTime?: string | null;
+  trainingDurationMin?: number | null;
+}): string[] {
+  const count = Math.min(Math.max(Math.round(input.mealsPerDay || 5), 3), 6);
+  const wake = parseHM(input.wake) ?? 420; // 07:00
+  let sleep = parseHM(input.sleep) ?? 1380; // 23:00
+  if (sleep <= wake) sleep += 1440;
+
+  const first = wake + 45;
+  const last = Math.max(first + (count - 1) * 60, sleep - 60);
+
+  const times: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    times.push(first + Math.round(((last - first) * i) / (count - 1)));
+  }
+
+  // Desvia da janela de treino e garante refeição pós-treino.
+  let tStart = parseHM(input.trainingTime);
+  if (tStart !== null) {
+    if (tStart < wake) tStart += 1440;
+    const tEnd = tStart + (input.trainingDurationMin ?? 60);
+    const post = tEnd + 30;
+    for (let i = 0; i < times.length; i += 1) {
+      if (times[i]! >= tStart - 20 && times[i]! <= tEnd + 10) times[i] = post;
+    }
+    if (!times.some((t) => Math.abs(t - post) <= 15)) {
+      let idx = 0;
+      let best = Infinity;
+      times.forEach((t, i) => {
+        const d = Math.abs(t - tStart!);
+        if (d < best) {
+          best = d;
+          idx = i;
+        }
+      });
+      times[idx] = post;
+    }
+  }
+
+  // Ordena, garante intervalo mínimo e mantém dentro do dia acordado.
+  times.sort((a, b) => a - b);
+  const minGap = 75;
+  for (let i = 1; i < times.length; i += 1) {
+    if (times[i]! - times[i - 1]! < minGap) times[i] = times[i - 1]! + minGap;
+  }
+  const cap = sleep - 20;
+  const overflow = times[times.length - 1]! - cap;
+  if (overflow > 0) {
+    for (let i = 0; i < times.length; i += 1) {
+      times[i] = Math.max(wake + 15, times[i]! - overflow);
+    }
+  }
+
+  return times.map((t) => formatHM(Math.round(t / 5) * 5));
+}
+
+/** Avisos quando o intervalo entre refeições consecutivas passa de ~5h. */
+export function mealGapWarnings(times: (string | null | undefined)[]): string[] {
+  const mins = times
+    .map((t) => parseHM(t))
+    .filter((x): x is number => x !== null)
+    .sort((a, b) => a - b);
+  const warnings: string[] = [];
+  for (let i = 1; i < mins.length; i += 1) {
+    const gap = mins[i]! - mins[i - 1]!;
+    if (gap > 300) {
+      warnings.push(
+        `Intervalo de ${(gap / 60).toFixed(1)}h entre ${formatHM(mins[i - 1]!)} e ${formatHM(mins[i]!)} — considere encaixar um lanche para não ficar tempo demais sem comer.`,
+      );
+    }
+  }
+  return warnings;
 }

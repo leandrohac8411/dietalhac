@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, Check, ClipboardList, Flame, Scale, Target, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,7 +52,7 @@ function Estrategia() {
       <div className="space-y-6">
         <PageHeader title="Minha estratégia" subtitle="Defina suas metas de calorias e macros." />
         <EmptyState
-          icon={<Sparkles className="h-5 w-5" />}
+          icon={<ClipboardList className="h-5 w-5" />}
           title="Complete o questionário primeiro"
           description="Precisamos dos seus dados e objetivo para calcular os cenários nutricionais."
           action={
@@ -143,14 +143,32 @@ function Estrategia() {
         subtitle={`Objetivo: ${GOAL_LABELS[g.goal_type] ?? g.goal_type}. Escolha o ritmo que combina com sua rotina.`}
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Peso atual" value={`${formatNumber(weight)} kg`} />
-        <StatCard label="IMC" value={formatNumber(bmi)} hint={bmi ? bmiClassification(bmi) : ""} />
-        <StatCard label="Metabolismo basal" value={formatKcal(bmr)} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="Peso atual"
+          value={`${formatNumber(weight)} kg`}
+          icon={<Scale className="h-4 w-4" />}
+          accent="green"
+        />
+        <StatCard
+          label="IMC"
+          value={formatNumber(bmi)}
+          hint={bmi ? bmiClassification(bmi) : ""}
+          icon={<Activity className="h-4 w-4" />}
+          accent="blue"
+        />
+        <StatCard
+          label="Metabolismo basal"
+          value={formatKcal(bmr)}
+          icon={<Flame className="h-4 w-4" />}
+          accent="amber"
+        />
         <StatCard
           label="Manutenção"
           value={formatKcal(maintenance)}
           hint={`Fator ${factor}`}
+          icon={<Target className="h-4 w-4" />}
+          accent="green"
           tone="accent"
         />
       </div>
@@ -168,7 +186,7 @@ function Estrategia() {
             <div
               key={s.key}
               className={cn(
-                "surface flex flex-col gap-4 p-5 transition-colors",
+                "surface elevate flex flex-col gap-4 p-5",
                 active && "border-accent ring-1 ring-accent",
               )}
             >

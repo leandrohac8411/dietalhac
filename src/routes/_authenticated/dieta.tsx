@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Minus, Plus, RefreshCw, Replace, Sparkles, Trash2, UtensilsCrossed } from "lucide-react";
+import { Minus, Plus, RefreshCw, Replace, Target, Trash2, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -24,7 +26,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Disclaimer, EmptyState, LoadingBlock, PageHeader, SectionCard } from "@/components/common";
+import {
+  AlertNote,
+  Disclaimer,
+  EmptyState,
+  LoadingBlock,
+  PageHeader,
+  SectionCard,
+} from "@/components/common";
 import {
   useActiveGoal,
   useAddMealItem,
@@ -35,9 +44,10 @@ import {
   useSubstitutions,
   useSwapMealItem,
   useUpdateMealItem,
+  useUpdateMealTime,
 } from "@/lib/db";
 import type { FoodItem, MealItemRow } from "@/lib/db";
-import { formatKcal, formatNumber } from "@/lib/fitness";
+import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 
 export const Route = createFileRoute("/_authenticated/dieta")({
   component: Dieta,
@@ -81,7 +91,7 @@ function Dieta() {
       <div className="space-y-6">
         <PageHeader title="Minha dieta" subtitle="Seu cardápio a partir das metas da estratégia." />
         <EmptyState
-          icon={<Sparkles className="h-5 w-5" />}
+          icon={<Target className="h-5 w-5" />}
           title="Defina sua estratégia primeiro"
           description="A dieta é gerada a partir da meta calórica e dos macros escolhidos na estratégia."
           action={
@@ -146,21 +156,51 @@ function Dieta() {
         action={<RegenerateButton onConfirm={runGenerate} pending={generate.isPending} />}
       />
 
-      <SectionCard title="Resumo do dia" description="Comparado com as metas da sua estratégia.">
+      <SectionCard
+        title="Resumo do dia"
+        description="Comparado com as metas da sua estratégia."
+        icon={<Target className="h-4 w-4" />}
+        accent="green"
+      >
         <div className="space-y-3">
           <AdherenceBar
             label="Calorias"
             value={totals.kcal}
             target={g.target_calories}
             unit="kcal"
+            bar="[&>div]:bg-accent"
           />
           <div className="grid gap-3 sm:grid-cols-3">
-            <AdherenceBar label="Proteína" value={totals.p} target={g.protein_g} unit="g" />
-            <AdherenceBar label="Carboidrato" value={totals.c} target={g.carbs_g} unit="g" />
-            <AdherenceBar label="Gordura" value={totals.f} target={g.fat_g} unit="g" />
+            <AdherenceBar
+              label="Proteína"
+              value={totals.p}
+              target={g.protein_g}
+              unit="g"
+              bar="[&>div]:bg-chart-1"
+            />
+            <AdherenceBar
+              label="Carboidrato"
+              value={totals.c}
+              target={g.carbs_g}
+              unit="g"
+              bar="[&>div]:bg-chart-3"
+            />
+            <AdherenceBar
+              label="Gordura"
+              value={totals.f}
+              target={g.fat_g}
+              unit="g"
+              bar="[&>div]:bg-chart-4"
+            />
           </div>
         </div>
       </SectionCard>
+
+      {mealGapWarnings(meals.map((m) => m.scheduled_time)).map((w, i) => (
+        <AlertNote key={i} tone="warning">
+          {w}
+        </AlertNote>
+      ))}
 
       {meals.map((meal) => (
         <MealCard key={meal.id} meal={meal} foods={foods.data ?? []} subsByFood={subsByFood} />
@@ -176,11 +216,13 @@ function AdherenceBar({
   value,
   target,
   unit,
+  bar,
 }: {
   label: string;
   value: number;
   target: number | null;
   unit: string;
+  bar?: string;
 }) {
   const pct = target && target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
   return (
@@ -191,7 +233,7 @@ function AdherenceBar({
           {Math.round(value)} / {target ?? "—"} {unit}
         </span>
       </div>
-      <Progress value={pct} className="mt-1.5 h-2" />
+      <Progress value={pct} className={cn("mt-1.5 h-2", bar)} />
     </div>
   );
 }
@@ -205,13 +247,25 @@ function MealCard({
   foods: FoodItem[];
   subsByFood: Map<string, FoodItem[]>;
 }) {
+  const updateTime = useUpdateMealTime();
   const items = meal.meal_items ?? [];
   const mt = macroTotals(items);
   return (
     <SectionCard
       title={meal.name}
-      description={`${meal.scheduled_time ?? ""} · ${formatKcal(mt.kcal)} · P ${Math.round(mt.p)}g · C ${Math.round(mt.c)}g · G ${Math.round(mt.f)}g`}
-      action={<AddFoodPopover mealId={meal.id} foods={foods} />}
+      description={`${formatKcal(mt.kcal)} · P ${Math.round(mt.p)}g · C ${Math.round(mt.c)}g · G ${Math.round(mt.f)}g`}
+      action={
+        <div className="flex items-center gap-2">
+          <Input
+            type="time"
+            aria-label={`Horário de ${meal.name}`}
+            value={meal.scheduled_time ?? ""}
+            onChange={(e) => updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value })}
+            className="h-9 w-[7.5rem]"
+          />
+          <AddFoodPopover mealId={meal.id} foods={foods} />
+        </div>
+      }
     >
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum alimento nesta refeição.</p>
