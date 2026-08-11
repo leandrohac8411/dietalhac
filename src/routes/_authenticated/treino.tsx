@@ -1,11 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Dumbbell, Minus, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Dumbbell, Minus, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Command,
   CommandEmpty,
@@ -124,6 +131,7 @@ function Treino() {
 
   const workouts = (data.workouts ?? []) as unknown as WorkoutWithExercises[];
   const splitLabel = SPLIT_LABELS[data.plan.split_type] ?? data.plan.split_type;
+  const mediaByName = new Map((exercises.data ?? []).map((e) => [e.name, e.media_url] as const));
 
   return (
     <div className="space-y-6">
@@ -135,7 +143,12 @@ function Treino() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         {workouts.map((w) => (
-          <WorkoutCard key={w.id} workout={w} exercises={exercises.data ?? []} />
+          <WorkoutCard
+            key={w.id}
+            workout={w}
+            exercises={exercises.data ?? []}
+            mediaByName={mediaByName}
+          />
         ))}
       </div>
 
@@ -150,9 +163,11 @@ function Treino() {
 function WorkoutCard({
   workout,
   exercises,
+  mediaByName,
 }: {
   workout: WorkoutWithExercises;
   exercises: Exercise[];
+  mediaByName: Map<string, string | null>;
 }) {
   const list = workout.workout_exercises ?? [];
   const weekday = workout.weekday !== null ? WEEKDAYS[workout.weekday] : null;
@@ -169,7 +184,7 @@ function WorkoutCard({
       ) : (
         <div className="divide-y">
           {list.map((ex) => (
-            <ExerciseRow key={ex.id} ex={ex} />
+            <ExerciseRow key={ex.id} ex={ex} media={mediaByName.get(ex.exercise_name) ?? null} />
           ))}
         </div>
       )}
@@ -177,7 +192,7 @@ function WorkoutCard({
   );
 }
 
-function ExerciseRow({ ex }: { ex: WorkoutExerciseRow }) {
+function ExerciseRow({ ex, media }: { ex: WorkoutExerciseRow; media: string | null }) {
   const update = useUpdateWorkoutExercise();
   const del = useDeleteWorkoutExercise();
 
@@ -192,25 +207,28 @@ function ExerciseRow({ ex }: { ex: WorkoutExerciseRow }) {
   return (
     <div className="py-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold">{ex.exercise_name}</p>
-            {ex.difficulty ? (
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                  DIFF_STYLE[ex.difficulty] ?? "bg-muted text-muted-foreground",
-                )}
-              >
-                {ex.difficulty}
-              </span>
+        <div className="flex min-w-0 items-start gap-3">
+          <MediaThumb media={media} name={ex.exercise_name} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-semibold">{ex.exercise_name}</p>
+              {ex.difficulty ? (
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    DIFF_STYLE[ex.difficulty] ?? "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {ex.difficulty}
+                </span>
+              ) : null}
+            </div>
+            {ex.alternative_name ? (
+              <p className="truncate text-xs text-muted-foreground">
+                Alternativa: {ex.alternative_name}
+              </p>
             ) : null}
           </div>
-          {ex.alternative_name ? (
-            <p className="truncate text-xs text-muted-foreground">
-              Alternativa: {ex.alternative_name}
-            </p>
-          ) : null}
         </div>
         <Button
           variant="ghost"
@@ -317,6 +335,62 @@ function Stepper({
         </Button>
       </div>
     </div>
+  );
+}
+
+function MediaThumb({ media, name }: { media: string | null; name: string }) {
+  const isVideo = !!media && /\.mp4(\?|$)/i.test(media);
+  if (!media) {
+    return (
+      <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+        <Dumbbell className="h-5 w-5" />
+      </span>
+    );
+  }
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted"
+          aria-label={`Ver demonstração de ${name}`}
+        >
+          {isVideo ? (
+            <video
+              src={media}
+              muted
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <img src={media} alt="" className="h-full w-full object-cover" />
+          )}
+          <span className="absolute inset-0 grid place-items-center bg-black/25 opacity-0 transition-opacity group-hover:opacity-100">
+            <Play className="h-5 w-5 fill-white text-white" />
+          </span>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{name}</DialogTitle>
+        </DialogHeader>
+        {isVideo ? (
+          <video
+            src={media}
+            autoPlay
+            loop
+            muted
+            playsInline
+            controls
+            className="w-full rounded-xl bg-black"
+          />
+        ) : (
+          <img src={media} alt={name} className="w-full rounded-xl" />
+        )}
+        <p className="text-xs text-muted-foreground">Demonstração ilustrativa (ExerciseDB).</p>
+      </DialogContent>
+    </Dialog>
   );
 }
 

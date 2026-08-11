@@ -408,6 +408,7 @@ function WorkoutCard({ workout, completed }: { workout: WorkoutWithExercises | n
   }
 
   function finish() {
+    if (!workout) return;
     complete.mutate(workout, {
       onSuccess: () => toast.success("Treino concluído!", { description: "Sua sessão entrou no histórico." }),
       onError: () => toast.error("Não foi possível concluir o treino."),

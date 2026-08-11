@@ -117,7 +117,7 @@ export function SectionCard({
   className,
 }: {
   title?: string;
-  description?: string;
+  description?: string | undefined;
   action?: ReactNode;
   icon?: ReactNode;
   accent?: Accent;
