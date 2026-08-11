@@ -10,10 +10,10 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "Definir nova senha — FormaFit" },
-      { name: "description", content: "Defina uma nova senha para acessar sua conta FormaFit." },
-      { property: "og:title", content: "Definir nova senha — FormaFit" },
-      { property: "og:description", content: "Recuperação de acesso da sua conta FormaFit." },
+      { title: "Definir nova senha — NEXO" },
+      { name: "description", content: "Defina uma nova senha para acessar sua conta NEXO." },
+      { property: "og:title", content: "Definir nova senha — NEXO" },
+      { property: "og:description", content: "Recuperação de acesso da sua conta NEXO." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -50,7 +50,14 @@ function ResetPassword() {
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="password">Nova senha</Label>
-            <Input id="password" name="password" type="password" required minLength={8} maxLength={72} />
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              required
+              minLength={8}
+              maxLength={72}
+            />
           </div>
           <Button type="submit" className="w-full" disabled={busy}>
             Salvar nova senha

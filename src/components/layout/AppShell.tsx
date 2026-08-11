@@ -48,10 +48,12 @@ const MOBILE_NAV = [
 function Logo() {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl gradient-accent font-display text-sm font-bold text-accent-foreground shadow-[0_4px_16px_oklch(0.82_0.19_128/0.4)]">
-        FF
-      </div>
-      <span className="font-display text-lg font-bold tracking-tight">FormaFit</span>
+      <img
+        src="/nexo-icon-256.png"
+        alt=""
+        className="h-12 w-12 shrink-0 rounded-xl shadow-[0_4px_16px_oklch(0.82_0.19_128/0.35)]"
+      />
+      <span className="font-display text-xl font-bold tracking-tight">NEXO</span>
     </div>
   );
 }

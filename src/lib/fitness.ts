@@ -1,5 +1,5 @@
 /**
- * Cálculos corporais e nutricionais do FormaFit.
+ * Cálculos corporais e nutricionais do NEXO.
  * Todas as fórmulas ficam isoladas aqui para poderem ser trocadas no futuro.
  * IMPORTANTE: são estimativas e não substituem avaliação profissional.
  */

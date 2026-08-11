@@ -13,7 +13,6 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -79,23 +78,36 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "FormaFit — plano de dieta e treino personalizado" },
+      { title: "NEXO — plano de dieta e treino personalizado" },
       {
         name: "description",
         content:
           "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução.",
       },
-      { property: "og:title", content: "FormaFit — plano de dieta e treino personalizado" },
+      { property: "og:title", content: "NEXO — plano de dieta e treino personalizado" },
       {
         property: "og:description",
-        content: "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução.",
+        content:
+          "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "FormaFit — plano de dieta e treino personalizado" },
-      { name: "twitter:description", content: "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/bf34e98a-3114-4e4e-b4e0-cda78be5368a/id-preview-b71d54d8--dda1c9ca-f9af-4b0b-bdc7-03a3d5cddf6d.lovable.app-1785510281821.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/bf34e98a-3114-4e4e-b4e0-cda78be5368a/id-preview-b71d54d8--dda1c9ca-f9af-4b0b-bdc7-03a3d5cddf6d.lovable.app-1785510281821.png" },
+      { name: "twitter:title", content: "NEXO — plano de dieta e treino personalizado" },
+      {
+        name: "twitter:description",
+        content:
+          "Cadastre seus dados, rotina e objetivo e receba estratégia nutricional, dieta, treino e acompanhamento semanal de evolução.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/bf34e98a-3114-4e4e-b4e0-cda78be5368a/id-preview-b71d54d8--dda1c9ca-f9af-4b0b-bdc7-03a3d5cddf6d.lovable.app-1785510281821.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/bf34e98a-3114-4e4e-b4e0-cda78be5368a/id-preview-b71d54d8--dda1c9ca-f9af-4b0b-bdc7-03a3d5cddf6d.lovable.app-1785510281821.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -106,6 +118,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap",
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/nexo-icon-192.png", type: "image/png", sizes: "192x192" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
 
@@ -140,4 +154,3 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
-
