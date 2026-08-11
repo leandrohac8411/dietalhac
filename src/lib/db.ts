@@ -25,7 +25,11 @@ async function requireUserId() {
   return data.user.id;
 }
 
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+};
 
 export function useProfile() {
   return useQuery({
@@ -329,6 +333,109 @@ export function useLogWater() {
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["waterToday"] }),
+  });
+}
+
+/** Remove o registro de agua mais recente do dia (desfazer registro rapido). */
+export function useUndoWater() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const uid = await requireUserId();
+      const { data, error } = await supabase
+        .from("water_logs")
+        .select("id")
+        .eq("user_id", uid)
+        .eq("log_date", today())
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return;
+      const { error: deleteError } = await supabase.from("water_logs").delete().eq("id", data.id);
+      if (deleteError) throw deleteError;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["waterToday"] }),
+  });
+}
+
+/** Marca ou desmarca uma refeicao planejada como realizada hoje. */
+export function useToggleMealCompletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      meal,
+      completed,
+    }: {
+      meal: { id: string; name: string; meal_items: MealItemRow[] };
+      completed: boolean;
+    }) => {
+      const uid = await requireUserId();
+      if (!completed) {
+        const { error } = await supabase
+          .from("daily_food_logs")
+          .delete()
+          .eq("user_id", uid)
+          .eq("log_date", today())
+          .eq("meal_id", meal.id);
+        if (error) throw error;
+        return;
+      }
+
+      const totals = meal.meal_items.reduce(
+        (acc, item) => ({
+          calories: acc.calories + Number(item.calories ?? 0),
+          protein_g: acc.protein_g + Number(item.protein_g ?? 0),
+          carbs_g: acc.carbs_g + Number(item.carbs_g ?? 0),
+          fat_g: acc.fat_g + Number(item.fat_g ?? 0),
+        }),
+        { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+      );
+      const { data: existing, error: findError } = await supabase
+        .from("daily_food_logs")
+        .select("id")
+        .eq("user_id", uid)
+        .eq("log_date", today())
+        .eq("meal_id", meal.id)
+        .limit(1)
+        .maybeSingle();
+      if (findError) throw findError;
+
+      const payload = { meal_name: meal.name, completed: true, ...totals };
+      const query = existing
+        ? supabase.from("daily_food_logs").update(payload).eq("id", existing.id)
+        : supabase.from("daily_food_logs").insert({
+            user_id: uid,
+            log_date: today(),
+            meal_id: meal.id,
+            ...payload,
+          });
+      const { error } = await query;
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["foodLogsToday"] }),
+  });
+}
+
+/** Registra um treino planejado como concluido no dia. */
+export function useCompleteWorkout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (workout: { id: string; name: string; estimated_min: number | null }) => {
+      const uid = await requireUserId();
+      const finishedAt = new Date();
+      const startedAt = new Date(finishedAt.getTime() - (workout.estimated_min ?? 60) * 60_000);
+      const { error } = await supabase.from("workout_sessions").insert({
+        user_id: uid,
+        workout_id: workout.id,
+        workout_name: workout.name,
+        started_at: startedAt.toISOString(),
+        finished_at: finishedAt.toISOString(),
+        duration_min: workout.estimated_min ?? 60,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutSessions"] }),
   });
 }
 
