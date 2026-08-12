@@ -504,6 +504,65 @@ export function useLogWeight() {
   });
 }
 
+export function useDeleteWeightLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("weight_logs").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["weightLogs"] }),
+  });
+}
+
+/** Registra uma avaliação corporal (% gordura, massa magra, água etc.). */
+export function useSaveAssessment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: Omit<TablesInsert<"body_assessments">, "user_id">) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("body_assessments").insert({ ...entry, user_id: uid });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["assessments"] }),
+  });
+}
+
+export function useDeleteAssessment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("body_assessments").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["assessments"] }),
+  });
+}
+
+/** Registra medidas corporais (circunferências). */
+export function useSaveMeasurement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: Omit<TablesInsert<"body_measurements">, "user_id">) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("body_measurements").insert({ ...entry, user_id: uid });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["measurements"] }),
+  });
+}
+
+export function useDeleteMeasurement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("body_measurements").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["measurements"] }),
+  });
+}
+
 /**
  * Persiste o questionário inicial completo: perfil, objetivo, preferências e
  * triagem de saúde. Chamado ao final do onboarding (e também ao reeditar).
