@@ -306,6 +306,30 @@ export function useCheckins() {
   });
 }
 
+/** Registra o check-in semanal (peso, aderência, sensações, dificuldades). */
+export function useSaveCheckin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: Omit<TablesInsert<"weekly_checkins">, "user_id">) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("weekly_checkins").insert({ ...entry, user_id: uid });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["checkins"] }),
+  });
+}
+
+export function useDeleteCheckin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("weekly_checkins").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["checkins"] }),
+  });
+}
+
 export function useAssessments() {
   return useQuery({
     queryKey: ["assessments"],
