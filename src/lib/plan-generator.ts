@@ -368,7 +368,7 @@ export function chooseSplit(days: number, experience?: string | null): string {
   return "abcd";
 }
 
-type ExerciseRow = {
+export type ExerciseRow = {
   id: string;
   name: string;
   muscle_group: string;
@@ -376,6 +376,51 @@ type ExerciseRow = {
   difficulty: string | null;
   alternative_name: string | null;
 };
+
+// Grupos musculares disponíveis para montar/trocar um treino manualmente.
+export const MUSCLE_GROUP_LABELS: Record<string, string> = {
+  peito: "Peito",
+  costas: "Costas",
+  ombros: "Ombros",
+  biceps: "Bíceps",
+  triceps: "Tríceps",
+  pernas: "Pernas",
+  posterior: "Posterior de coxa",
+  gluteos: "Glúteos",
+  panturrilha: "Panturrilha",
+  abdomen: "Abdômen",
+  adutor: "Adutor",
+  abdutor: "Abdutor",
+  lombar: "Lombar",
+  cardio: "Cardio",
+};
+
+/** Monta a lista de exercícios para um conjunto arbitrário de grupos musculares
+ *  (usado tanto pelos blueprints automáticos quanto para o usuário trocar/gerar
+ *  um único dia manualmente, ex.: "só tríceps" ou "costas e ombro"). */
+export function buildWorkoutExercises(params: {
+  exercises: ExerciseRow[];
+  groups: string[];
+  durationMin: number;
+  place: string;
+  goal: string;
+}): PlanWorkoutExercise[] {
+  const home = params.place === "home" || params.place === "outdoor";
+  const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
+  const maxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
+
+  return params.groups
+    .flatMap((g) => pool.filter((e) => e.muscle_group === g))
+    .slice(0, maxEx)
+    .map<PlanWorkoutExercise>((e) => ({
+      exercise_name: e.name,
+      sets: params.goal === "forca" ? 4 : 3,
+      reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
+      rest_seconds: params.goal === "forca" ? 150 : 60,
+      difficulty: e.difficulty ?? "iniciante",
+      alternative_name: e.alternative_name ?? undefined,
+    }));
+}
 
 type Blueprint = { name: string; groups: string[]; label: string };
 

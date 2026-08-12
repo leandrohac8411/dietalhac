@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
-import { generateMealPlan, generateWorkoutPlan } from "@/lib/plan-generator";
+import { buildWorkoutExercises, generateMealPlan, generateWorkoutPlan } from "@/lib/plan-generator";
 import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
 
 export type Profile = Tables<"profiles">;
@@ -1011,6 +1011,85 @@ export function useAddWorkoutExercise() {
         alternative_name: exercise.alternative_name,
       });
       if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
+  });
+}
+
+/** Troca os exercícios de um único dia por um conjunto escolhido de grupos musculares
+ *  (ex.: "só tríceps", ou "costas e ombro"), mantendo o resto do treino intacto. */
+export function useRegenerateWorkoutDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      workoutId,
+      groups,
+      groupLabel,
+      durationMin,
+    }: {
+      workoutId: string;
+      groups: string[];
+      groupLabel: string;
+      durationMin: number;
+    }) => {
+      const uid = await requireUserId();
+
+      const { data: prefs } = await supabase
+        .from("user_preferences")
+        .select("training_place")
+        .eq("user_id", uid)
+        .maybeSingle();
+      const { data: goal } = await supabase
+        .from("user_goals")
+        .select("goal_type")
+        .eq("user_id", uid)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const { data: exercises, error: eErr } = await supabase
+        .from("exercises")
+        .select("id,name,muscle_group,place,difficulty,alternative_name")
+        .eq("is_active", true);
+      if (eErr) throw eErr;
+
+      const newExercises = buildWorkoutExercises({
+        exercises: exercises ?? [],
+        groups,
+        durationMin,
+        place: prefs?.training_place ?? "gym",
+        goal: goal?.goal_type ?? "condicionamento",
+      });
+      if (newExercises.length === 0)
+        throw new Error("Nenhum exercício encontrado para esse grupo muscular.");
+
+      const { error: delErr } = await supabase
+        .from("workout_exercises")
+        .delete()
+        .eq("workout_id", workoutId);
+      if (delErr) throw delErr;
+
+      const { error: insErr } = await supabase.from("workout_exercises").insert(
+        newExercises.map((ex, j) => ({
+          user_id: uid,
+          workout_id: workoutId,
+          exercise_name: ex.exercise_name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest_seconds: ex.rest_seconds,
+          difficulty: ex.difficulty ?? null,
+          alternative_name: ex.alternative_name ?? null,
+          sort_order: j,
+        })),
+      );
+      if (insErr) throw insErr;
+
+      const { error: updErr } = await supabase
+        .from("workouts")
+        .update({ muscle_groups: groupLabel })
+        .eq("id", workoutId);
+      if (updErr) throw updErr;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
   });

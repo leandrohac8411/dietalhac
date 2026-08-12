@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Dumbbell, Minus, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Dumbbell, Minus, Play, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,11 +40,12 @@ import {
   useExercises,
   useGenerateWorkout,
   useProfile,
+  useRegenerateWorkoutDay,
   useUpdateWorkoutExercise,
   useWorkoutPlan,
 } from "@/lib/db";
 import type { Exercise, WorkoutExerciseRow } from "@/lib/db";
-import { SPLIT_LABELS } from "@/lib/plan-generator";
+import { MUSCLE_GROUP_LABELS, SPLIT_LABELS } from "@/lib/plan-generator";
 
 export const Route = createFileRoute("/_authenticated/treino")({
   component: Treino,
@@ -177,7 +178,12 @@ function WorkoutCard({
       description={`${workout.muscle_groups ?? ""}${weekday ? ` · ${weekday}` : ""} · ~${workout.estimated_min ?? 60} min`}
       icon={<Dumbbell className="h-4 w-4" />}
       accent="blue"
-      action={<AddExercisePopover workoutId={workout.id} exercises={exercises} />}
+      action={
+        <div className="flex items-center gap-2">
+          <GroupPickerPopover workoutId={workout.id} durationMin={workout.estimated_min ?? 60} />
+          <AddExercisePopover workoutId={workout.id} exercises={exercises} />
+        </div>
+      }
       className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
       {list.length === 0 ? (
@@ -455,6 +461,82 @@ function AddExercisePopover({
             </CommandGroup>
           </CommandList>
         </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function GroupPickerPopover({
+  workoutId,
+  durationMin,
+}: {
+  workoutId: string;
+  durationMin: number;
+}) {
+  const regenerate = useRegenerateWorkoutDay();
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggle = (g: string) =>
+    setSelected((s) => (s.includes(g) ? s.filter((x) => x !== g) : [...s, g]));
+
+  function generate() {
+    if (selected.length === 0) return;
+    const groupLabel = selected.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(" e ");
+    regenerate.mutate(
+      { workoutId, groups: selected, groupLabel, durationMin },
+      {
+        onSuccess: () => {
+          toast.success("Treino do dia trocado!", { description: groupLabel });
+          setOpen(false);
+          setSelected([]);
+        },
+        onError: (e) =>
+          toast.error("Não foi possível gerar", {
+            description: e instanceof Error ? e.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3">
+          <Target className="h-4 w-4 sm:mr-1" />
+          <span className="sr-only sm:not-sr-only">Trocar grupo</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">
+          Escolha o(s) grupo(s) e gere este dia só com eles
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(MUSCLE_GROUP_LABELS).map(([g, label]) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => toggle(g)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                selected.includes(g)
+                  ? "border-accent bg-accent text-accent-foreground"
+                  : "border-border/60 text-muted-foreground hover:border-accent/50",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button
+          size="sm"
+          className="mt-3 w-full"
+          disabled={selected.length === 0 || regenerate.isPending}
+          onClick={generate}
+        >
+          <RefreshCw className="mr-1.5 h-4 w-4" />
+          {regenerate.isPending ? "Gerando..." : "Gerar este treino"}
+        </Button>
       </PopoverContent>
     </Popover>
   );
