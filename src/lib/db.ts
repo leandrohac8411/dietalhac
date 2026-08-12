@@ -489,6 +489,19 @@ export function useCompleteWorkout() {
 }
 
 /** Registro de peso — atualiza também o peso do perfil. */
+/** Edita dados básicos do perfil (nome, nascimento, sexo, altura) fora do onboarding. */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: TablesUpdate<"profiles">) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("profiles").update(patch).eq("id", uid);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["profile"] }),
+  });
+}
+
 export function useLogWeight() {
   const qc = useQueryClient();
   return useMutation({
