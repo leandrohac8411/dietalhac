@@ -1,8 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
-import { buildWorkoutExercises, generateMealPlan, generateWorkoutPlan } from "@/lib/plan-generator";
+import {
+  buildMealPlanFromChoices,
+  buildWorkoutExercises,
+  eligibleDietFoods,
+  generateMealPlan,
+  generateWorkoutPlan,
+} from "@/lib/plan-generator";
 import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
+import { generateNaturalDiet } from "@/lib/diet-ai.functions";
 
 export type Profile = Tables<"profiles">;
 export type UserGoal = Tables<"user_goals">;
@@ -733,21 +740,42 @@ export function useGenerateDiet() {
       if (!foods || foods.length === 0)
         throw new Error("Catálogo de alimentos vazio. Aplique o seed do banco antes de gerar.");
 
-      const plan: PlanMeal[] = generateMealPlan({
-        foods: foods as FoodRow[],
+      const catalog = foods as FoodRow[];
+      const targets = {
+        calories: goal.target_calories,
+        protein: goal.protein_g ?? 0,
+        carbs: goal.carbs_g ?? 0,
+        fat: goal.fat_g ?? 0,
+        fiber: goal.fiber_g ?? 0,
+      };
+      const localPlan: PlanMeal[] = generateMealPlan({
+        foods: catalog,
         mealsPerDay: prefs?.meals_per_day ?? 5,
         mealTimes: prefs?.meal_times ?? null,
-        targets: {
-          calories: goal.target_calories,
-          protein: goal.protein_g ?? 0,
-          carbs: goal.carbs_g ?? 0,
-          fat: goal.fat_g ?? 0,
-          fiber: goal.fiber_g ?? 0,
-        },
+        targets,
         restrictions: prefs?.dietary_restrictions ?? [],
         dislikes: prefs?.disliked_foods ?? null,
         allergies: prefs?.allergies ?? null,
       });
+
+      const eligibleFoods = eligibleDietFoods({
+        foods: catalog,
+        restrictions: prefs?.dietary_restrictions ?? [],
+        dislikes: prefs?.disliked_foods ?? null,
+        allergies: prefs?.allergies ?? null,
+      });
+      const aiChoices = await generateNaturalDiet({
+        data: {
+          meals: localPlan.map(({ name, scheduled_time }) => ({ name, scheduled_time })),
+          foods: eligibleFoods.map(({ id, name, category }) => ({ id, name, category })),
+          restrictions: prefs?.dietary_restrictions ?? [],
+          dislikes: prefs?.disliked_foods ?? null,
+          allergies: prefs?.allergies ?? null,
+        },
+      });
+      const plan: PlanMeal[] = aiChoices
+        ? buildMealPlanFromChoices({ foods: eligibleFoods, choices: aiChoices, targets })
+        : localPlan;
 
       await supabase
         .from("meal_plans")
