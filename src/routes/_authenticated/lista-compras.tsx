@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Check, ShoppingCart } from "lucide-react";
+import { Check, ShoppingCart, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState, LoadingBlock, PageHeader, SectionCard } from "@/components/common";
-import { useFoods, useMealPlan } from "@/lib/db";
-import type { FoodItem, MealItemRow } from "@/lib/db";
+import { useActiveGoal, useFoods, usePreferences } from "@/lib/db";
+import type { FoodItem } from "@/lib/db";
+import { generateMealPlan } from "@/lib/plan-generator";
+import type { FoodRow } from "@/lib/plan-generator";
 
 export const Route = createFileRoute("/_authenticated/lista-compras")({
   component: Page_lista_compras,
@@ -47,56 +49,80 @@ type ListItem = {
 };
 
 function Page_lista_compras() {
-  const mealPlan = useMealPlan();
+  const goal = useActiveGoal();
+  const prefs = usePreferences();
   const foods = useFoods();
   const [days, setDays] = useState("7");
   const [checked, setChecked] = useState<Set<string>>(new Set());
 
-  const multiplier = Math.max(1, Number(days) || 7);
+  const dayCount = Math.min(14, Math.max(1, Number(days) || 7));
+  const g = goal.data;
 
+  // Simula `dayCount` dias DIFERENTES de dieta (não repete o mesmo dia várias
+  // vezes) para a lista de compras refletir a variação real de uma semana,
+  // usando o mesmo motor de geração da dieta (que já varia entre chamadas).
   const items = useMemo(() => {
-    const allItems = (mealPlan.data?.meals ?? []).flatMap(
-      (m) => (m.meal_items ?? []) as MealItemRow[],
-    );
-    const foodsById = new Map((foods.data ?? []).map((f: FoodItem) => [f.id, f]));
-
+    if (!g?.target_calories || !foods.data || foods.data.length === 0) return [];
+    const catalog = foods.data as FoodRow[];
+    const targets = {
+      calories: g.target_calories,
+      protein: g.protein_g ?? 0,
+      carbs: g.carbs_g ?? 0,
+      fat: g.fat_g ?? 0,
+      fiber: g.fiber_g ?? 0,
+    };
+    const foodsById = new Map((foods.data as FoodItem[]).map((f) => [f.id, f]));
     const grouped = new Map<string, ListItem>();
-    for (const item of allItems) {
-      const key = item.food_item_id ?? item.food_name;
-      const food = item.food_item_id ? foodsById.get(item.food_item_id) : undefined;
-      const existing = grouped.get(key);
-      const qty = Number(item.quantity) * multiplier;
-      if (existing) {
-        existing.quantity += qty;
-      } else {
-        grouped.set(key, {
-          key,
-          name: item.food_name,
-          quantity: qty,
-          unit: item.unit,
-          category: food?.category ?? "outros",
-          cost: food?.estimated_cost ? Number(food.estimated_cost) : null,
-        });
+
+    for (let day = 0; day < dayCount; day += 1) {
+      const plan = generateMealPlan({
+        foods: catalog,
+        mealsPerDay: prefs.data?.meals_per_day ?? 5,
+        mealTimes: prefs.data?.meal_times ?? null,
+        targets,
+        restrictions: prefs.data?.dietary_restrictions ?? [],
+        dislikes: prefs.data?.disliked_foods ?? null,
+        allergies: prefs.data?.allergies ?? null,
+      });
+      for (const meal of plan) {
+        for (const item of meal.items) {
+          const key = item.food_item_id ?? item.food_name;
+          const food = item.food_item_id ? foodsById.get(item.food_item_id) : undefined;
+          const existing = grouped.get(key);
+          if (existing) {
+            existing.quantity += item.quantity;
+          } else {
+            grouped.set(key, {
+              key,
+              name: item.food_name,
+              quantity: item.quantity,
+              unit: item.unit,
+              category: food?.category ?? "outros",
+              cost: food?.estimated_cost ? Number(food.estimated_cost) : null,
+            });
+          }
+        }
       }
     }
+
     return [...grouped.values()].sort(
       (a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category),
     );
-  }, [mealPlan.data, foods.data, multiplier]);
+  }, [g, foods.data, prefs.data, dayCount]);
 
-  if (mealPlan.isLoading || foods.isLoading) return <LoadingBlock rows={5} />;
+  if (goal.isLoading || prefs.isLoading || foods.isLoading) return <LoadingBlock rows={5} />;
 
-  if (!mealPlan.data) {
+  if (!g?.target_calories) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Lista de compras" subtitle="Gerada a partir da sua dieta." />
+        <PageHeader title="Lista de compras" subtitle="Gerada a partir da sua estratégia." />
         <EmptyState
-          icon={<ShoppingCart className="h-5 w-5" />}
-          title="Nenhuma dieta gerada ainda"
-          description="Gere sua dieta primeiro para montarmos a lista de compras."
+          icon={<Target className="h-5 w-5" />}
+          title="Defina sua estratégia primeiro"
+          description="Precisamos da sua meta calórica para simular uma semana de compras."
           action={
             <Button asChild>
-              <Link to="/dieta">Ir para a dieta</Link>
+              <Link to="/estrategia">Ir para a estratégia</Link>
             </Button>
           }
         />
@@ -131,22 +157,27 @@ function Page_lista_compras() {
     <div className="space-y-6">
       <PageHeader
         title="Lista de compras"
-        subtitle={`Baseada na sua dieta atual · estimativa ${totalCost > 0 ? `R$ ${totalCost.toFixed(2).replace(".", ",")}` : "—"}`}
+        subtitle={`Simulação de ${dayCount} dias variados · estimativa ${totalCost > 0 ? `R$ ${totalCost.toFixed(2).replace(".", ",")}` : "—"}`}
       />
 
       <SectionCard title="Período" icon={<ShoppingCart className="h-4 w-4" />} accent="green">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Comprar para</span>
+          <span className="text-sm text-muted-foreground">Simular</span>
           <Input
             type="number"
             inputMode="numeric"
             min={1}
+            max={14}
             value={days}
             onChange={(e) => setDays(e.target.value)}
             className="w-20"
           />
-          <span className="text-sm text-muted-foreground">dias</span>
+          <span className="text-sm text-muted-foreground">dias diferentes de dieta</span>
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Cada dia é gerado de novo (não é o mesmo cardápio repetido), então a lista reflete a
+          variação real de uma semana.
+        </p>
       </SectionCard>
 
       {[...byCategory.entries()].map(([category, catItems]) => (
