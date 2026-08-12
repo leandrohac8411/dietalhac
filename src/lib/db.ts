@@ -1054,6 +1054,14 @@ export function useRegenerateWorkoutDay() {
         .eq("is_active", true);
       if (eErr) throw eErr;
 
+      const { data: currentWorkout } = await supabase
+        .from("workouts")
+        .select("name")
+        .eq("id", workoutId)
+        .maybeSingle();
+      const prefix = currentWorkout?.name?.split("—")[0]?.trim() || "Treino";
+      const newName = `${prefix} — ${groupLabel}`;
+
       const newExercises = buildWorkoutExercises({
         exercises: exercises ?? [],
         groups,
@@ -1087,7 +1095,7 @@ export function useRegenerateWorkoutDay() {
 
       const { error: updErr } = await supabase
         .from("workouts")
-        .update({ muscle_groups: groupLabel })
+        .update({ name: newName, muscle_groups: groupLabel })
         .eq("id", workoutId);
       if (updErr) throw updErr;
     },
