@@ -988,22 +988,31 @@ export function generateWorkoutPlan(params: {
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
   const baseMaxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
 
-  // Ênfase: expande as áreas de prioridade para muscle_group e amplia o volume dos
-  // dias que já tocam nessas áreas; se o foco não é "balanced" e nenhum dia do
-  // blueprint já cobre a prioridade, dedica o último dia (que normalmente repetiria
-  // um grupo já treinado) exclusivamente a ela.
-  const priorityGroups = (params.priorityAreas ?? []).flatMap((a) => PRIORITY_TO_GROUPS[a] ?? []);
+  // Ênfase: expande as áreas de prioridade para muscle_group. Se o foco não é
+  // "balanced", garante que pelo menos metade dos dias da semana toquem a
+  // prioridade — não basta 1 dia já tocar o grupo "de passagem"; converte dias
+  // não relacionados (de trás para frente, pulando o dia de cárdio puro) até
+  // atingir essa cobertura, para a ênfase ser sentida de verdade no plano.
+  const priorityGroups = [
+    ...new Set((params.priorityAreas ?? []).flatMap((a) => PRIORITY_TO_GROUPS[a] ?? [])),
+  ];
   if (priorityGroups.length > 0 && params.priorityLevel && params.priorityLevel !== "balanced") {
-    const alreadyCovered = blueprints.some((bp) =>
+    const emphasisLabel = priorityGroups.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(" e ");
+    const wantedCoverage = Math.max(1, Math.ceil((blueprints.length * 2) / 3));
+    let covered = blueprints.filter((bp) =>
       bp.groups.some((g) => priorityGroups.includes(g)),
-    );
-    const last = blueprints[blueprints.length - 1]!;
-    if (!alreadyCovered) {
-      blueprints[blueprints.length - 1] = {
-        name: `Treino extra — ${last.label.includes("Cárdio") ? "Foco" : "Ênfase"}`,
-        groups: [...new Set(priorityGroups)],
-        label: "Ênfase escolhida",
+    ).length;
+    for (let i = blueprints.length - 1; i >= 0 && covered < wantedCoverage; i -= 1) {
+      const bp = blueprints[i]!;
+      if (bp.groups.some((g) => priorityGroups.includes(g))) continue;
+      if (bp.label.includes("Cárdio")) continue;
+      const prefix = bp.name.split("—")[0]?.trim() ?? "Treino";
+      blueprints[i] = {
+        name: `${prefix} — Ênfase: ${emphasisLabel}`,
+        groups: priorityGroups,
+        label: `Ênfase: ${emphasisLabel}`,
       };
+      covered += 1;
     }
   }
 
