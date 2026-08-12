@@ -39,7 +39,7 @@ export const Route = createFileRoute("/")({
 
 const STATS = [
   { v: "3", l: "cenários de meta" },
-  { v: "58", l: "alimentos com troca" },
+  { v: "120+", l: "alimentos com troca" },
   { v: "54", l: "exercícios em vídeo" },
 ];
 

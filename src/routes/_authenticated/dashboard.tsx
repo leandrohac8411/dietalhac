@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   Activity,
   Apple,
@@ -14,9 +15,11 @@ import {
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Disclaimer, PageHeader, Ring, SectionCard, StatCard } from "@/components/common";
 import {
   useActiveGoal,
+  useActivities,
   useLogWater,
   useMealPlan,
   usePreferences,
@@ -37,6 +40,7 @@ import {
   formatNumber,
   parseHM,
 } from "@/lib/fitness";
+import { weeklyExtraKcalPerDay } from "@/lib/activities";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
@@ -50,9 +54,11 @@ type MealWithItems = {
 };
 
 function Dashboard() {
+  const [customWater, setCustomWater] = useState("");
   const profile = useProfile();
   const prefs = usePreferences();
   const goal = useActiveGoal();
+  const activities = useActivities();
   const water = useWaterToday();
   const weights = useWeightLogs();
   const mealPlan = useMealPlan();
@@ -73,7 +79,15 @@ function Dashboard() {
     trainingDays: prefs.data?.training_days ?? null,
     dailySteps: prefs.data?.daily_steps ?? null,
   });
-  const tdee = bmr ? calcTdee(bmr, factor) : null;
+  const extraKcal = weeklyExtraKcalPerDay(
+    (activities.data ?? []).map((a) => ({
+      activity: a.name,
+      weekdays: a.weekdays,
+      duration_min: a.duration_min,
+    })),
+    weight,
+  );
+  const tdee = bmr ? calcTdee(bmr, factor) + extraKcal : null;
   const waterMl = (water.data ?? []).reduce((acc, w) => acc + (w.amount_ml ?? 0), 0);
   const waterGoal = g?.water_ml ?? 2500;
   const firstName = (p?.full_name ?? "").split(" ")[0] || "atleta";
@@ -174,7 +188,11 @@ function Dashboard() {
           value={formatKcal(tdee)}
           icon={<Flame className="h-4 w-4" />}
           accent="amber"
-          hint={`Fator de atividade ${factor}`}
+          hint={
+            extraKcal > 0
+              ? `Fator ${factor} + ${extraKcal} kcal de atividades`
+              : `Fator de atividade ${factor}`
+          }
         />
         <StatCard
           label="Meta calórica"
@@ -254,7 +272,7 @@ function Dashboard() {
               sub={`${Math.round(waterGoal > 0 ? (waterMl / waterGoal) * 100 : 0)}%`}
             />
             <div className="flex w-full gap-2">
-              {[250, 500].map((ml) => (
+              {[100, 250, 500].map((ml) => (
                 <Button
                   key={ml}
                   variant="outline"
@@ -266,6 +284,31 @@ function Dashboard() {
                   <Droplets className="mr-1 h-4 w-4" /> +{ml}
                 </Button>
               ))}
+            </div>
+            <div className="flex w-full gap-2">
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                placeholder="Outra quantidade (ml)"
+                value={customWater}
+                onChange={(e) => setCustomWater(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={logWater.isPending || !Number(customWater)}
+                onClick={() => {
+                  const ml = Math.round(Number(customWater));
+                  if (ml > 0) {
+                    logWater.mutate(ml);
+                    setCustomWater("");
+                  }
+                }}
+              >
+                <Droplets className="mr-1 h-4 w-4" /> Adicionar
+              </Button>
             </div>
           </div>
         </SectionCard>

@@ -18,6 +18,7 @@ export type WaterLog = Tables<"water_logs">;
 export type Checkin = Tables<"weekly_checkins">;
 export type Assessment = Tables<"body_assessments">;
 export type Measurement = Tables<"body_measurements">;
+export type FoodLogRow = Tables<"daily_food_logs">;
 
 async function requireUserId() {
   const { data } = await supabase.auth.getUser();
@@ -238,6 +239,47 @@ export function useFoodLogsToday() {
       if (error) throw error;
       return data ?? [];
     },
+  });
+}
+
+/** Registra um alimento fora do plano (ex.: bolo de chocolate) no diário de hoje. */
+export function useLogFreeFood() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: {
+      name: string;
+      calories: number;
+      protein_g: number;
+      carbs_g: number;
+      fat_g: number;
+    }) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("daily_food_logs").insert({
+        user_id: uid,
+        log_date: today(),
+        meal_id: null,
+        meal_name: entry.name,
+        completed: true,
+        calories: entry.calories,
+        protein_g: entry.protein_g,
+        carbs_g: entry.carbs_g,
+        fat_g: entry.fat_g,
+        notes: "Registrado manualmente",
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["foodLogsToday"] }),
+  });
+}
+
+export function useDeleteFoodLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("daily_food_logs").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["foodLogsToday"] }),
   });
 }
 
@@ -471,6 +513,7 @@ export type OnboardingPayload = {
   goal: Omit<TablesInsert<"user_goals">, "user_id" | "is_active">;
   preferences: Omit<TablesInsert<"user_preferences">, "user_id">;
   screening: Omit<TablesInsert<"health_screening">, "user_id">;
+  activities: Omit<TablesInsert<"user_activities">, "user_id">[];
 };
 
 export function useCompleteOnboarding() {
@@ -503,6 +546,19 @@ export function useCompleteOnboarding() {
         .upsert({ ...payload.screening, user_id: uid }, { onConflict: "user_id" });
       if (scErr) throw scErr;
 
+      // Atividades extras: substitui a lista inteira (remove e reinsere).
+      const { error: delActErr } = await supabase
+        .from("user_activities")
+        .delete()
+        .eq("user_id", uid);
+      if (delActErr) throw delActErr;
+      if (payload.activities.length > 0) {
+        const { error: actErr } = await supabase
+          .from("user_activities")
+          .insert(payload.activities.map((a) => ({ ...a, user_id: uid })));
+        if (actErr) throw actErr;
+      }
+
       // Perfil: dados básicos + marca o onboarding como concluído.
       const { error: pErr } = await supabase
         .from("profiles")
@@ -515,6 +571,25 @@ export function useCompleteOnboarding() {
       void qc.invalidateQueries({ queryKey: ["goal"] });
       void qc.invalidateQueries({ queryKey: ["preferences"] });
       void qc.invalidateQueries({ queryKey: ["screening"] });
+      void qc.invalidateQueries({ queryKey: ["activities"] });
+    },
+  });
+}
+
+export type UserActivity = Tables<"user_activities">;
+
+export function useActivities() {
+  return useQuery({
+    queryKey: ["activities"],
+    queryFn: async (): Promise<UserActivity[]> => {
+      const uid = await requireUserId();
+      const { data, error } = await supabase
+        .from("user_activities")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at");
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }
@@ -796,6 +871,11 @@ export function useGenerateWorkout() {
         .select("*")
         .eq("user_id", uid)
         .maybeSingle();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("biological_sex")
+        .eq("id", uid)
+        .maybeSingle();
 
       const { data: exercises, error: eErr } = await supabase
         .from("exercises")
@@ -816,6 +896,10 @@ export function useGenerateWorkout() {
         place,
         experience: prefs?.experience_level ?? null,
         goal: goal?.goal_type ?? "condicionamento",
+        sex: profile?.biological_sex ?? null,
+        priorityAreas: goal?.priority_areas ?? null,
+        priorityLevel: goal?.priority_level ?? null,
+        splitPreference: prefs?.workout_split_preference ?? "auto",
       });
 
       await supabase

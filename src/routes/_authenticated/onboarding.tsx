@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, ArrowRight, Check, ClipboardList, Clock } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ClipboardList, Clock, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -9,14 +9,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AlertNote, Disclaimer, LoadingBlock, SectionCard } from "@/components/common";
 import {
   useActiveGoal,
+  useActivities,
   useCompleteOnboarding,
   usePreferences,
   useProfile,
   useScreening,
 } from "@/lib/db";
+import { ACTIVITY_OPTIONS } from "@/lib/activities";
 import {
   GOAL_LABELS,
   activityFactor,
@@ -28,6 +37,8 @@ import {
   goalFeasibility,
   mealGapWarnings,
 } from "@/lib/fitness";
+
+const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
   component: Onboarding,
@@ -62,6 +73,12 @@ const PLACE: Opt[] = [
   { v: "gym", l: "Academia" },
   { v: "home", l: "Em casa" },
   { v: "outdoor", l: "Ao ar livre" },
+];
+const SPLIT_PREFERENCE: Opt[] = [
+  { v: "auto", l: "Automático" },
+  { v: "ab", l: "AB" },
+  { v: "abc", l: "ABC" },
+  { v: "abcd", l: "ABCD" },
 ];
 const PRIORITY_LEVEL: Opt[] = [
   { v: "balanced", l: "Equilíbrio" },
@@ -150,6 +167,12 @@ const MEAL_LABELS = [
 
 /* ---------- Estado do formulário ---------- */
 
+type ActivityFormEntry = {
+  activity: string;
+  weekdays: number[];
+  duration_min: string;
+};
+
 type FormState = {
   current_weight_kg: string;
   goal_type: string;
@@ -170,6 +193,8 @@ type FormState = {
   experience_level: string;
   training_place: string;
   equipment: string[];
+  workout_split_preference: string;
+  activities: ActivityFormEntry[];
   meals_per_day: string;
   meal_times: string[];
   dietary_restrictions: string[];
@@ -206,6 +231,8 @@ const INITIAL: FormState = {
   experience_level: "",
   training_place: "",
   equipment: [],
+  workout_split_preference: "auto",
+  activities: [],
   meals_per_day: "5",
   meal_times: [],
   dietary_restrictions: [],
@@ -342,6 +369,7 @@ function Onboarding() {
   const prefs = usePreferences();
   const goal = useActiveGoal();
   const screening = useScreening();
+  const activities = useActivities();
   const complete = useCompleteOnboarding();
 
   const [step, setStep] = useState(0);
@@ -351,13 +379,21 @@ function Onboarding() {
   // Pré-preenche com dados já existentes (edição do questionário).
   useEffect(() => {
     if (seeded.current) return;
-    if (profile.isLoading || prefs.isLoading || goal.isLoading || screening.isLoading) return;
+    if (
+      profile.isLoading ||
+      prefs.isLoading ||
+      goal.isLoading ||
+      screening.isLoading ||
+      activities.isLoading
+    )
+      return;
     seeded.current = true;
 
     const p = profile.data;
     const g = goal.data;
     const pr = prefs.data;
     const sc = screening.data;
+    const ac = activities.data;
     const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
     setForm((f) => ({
@@ -380,6 +416,7 @@ function Onboarding() {
       experience_level: pr?.experience_level ?? f.experience_level,
       training_place: pr?.training_place ?? f.training_place,
       equipment: pr?.equipment ?? f.equipment,
+      workout_split_preference: pr?.workout_split_preference ?? f.workout_split_preference,
       meals_per_day: str(pr?.meals_per_day) || f.meals_per_day,
       meal_times: pr?.meal_times && pr.meal_times.length > 0 ? pr.meal_times : f.meal_times,
       dietary_restrictions: pr?.dietary_restrictions ?? f.dietary_restrictions,
@@ -405,8 +442,16 @@ function Onboarding() {
       recent_surgery: sc?.recent_surgery ?? false,
       persistent_pain: sc?.persistent_pain ?? false,
       medical_followup: sc?.medical_followup ?? false,
+      activities:
+        ac && ac.length > 0
+          ? ac.map((a) => ({
+              activity: a.name,
+              weekdays: a.weekdays,
+              duration_min: str(a.duration_min),
+            }))
+          : f.activities,
     }));
-  }, [profile, prefs, goal, screening]);
+  }, [profile, prefs, goal, screening, activities]);
 
   // Deriva os horários das refeições quando a quantidade muda (mantém edições manuais).
   useEffect(() => {
@@ -435,6 +480,36 @@ function Onboarding() {
       const cur = f[key];
       return { ...f, [key]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
     });
+
+  const addActivity = () =>
+    setForm((f) => ({
+      ...f,
+      activities: [...f.activities, { activity: "", weekdays: [], duration_min: "60" }],
+    }));
+
+  const removeActivity = (index: number) =>
+    setForm((f) => ({ ...f, activities: f.activities.filter((_, i) => i !== index) }));
+
+  const updateActivity = (index: number, patch: Partial<ActivityFormEntry>) =>
+    setForm((f) => ({
+      ...f,
+      activities: f.activities.map((a, i) => (i === index ? { ...a, ...patch } : a)),
+    }));
+
+  const toggleActivityWeekday = (index: number, day: number) =>
+    setForm((f) => ({
+      ...f,
+      activities: f.activities.map((a, i) =>
+        i === index
+          ? {
+              ...a,
+              weekdays: a.weekdays.includes(day)
+                ? a.weekdays.filter((d) => d !== day)
+                : [...a.weekdays, day].sort(),
+            }
+          : a,
+      ),
+    }));
 
   // Recalcula os horários pela rotina (sobrescreve edições manuais).
   const recalcTimes = () =>
@@ -553,6 +628,7 @@ function Onboarding() {
           experience_level: form.experience_level,
           training_place: form.training_place,
           equipment: form.equipment,
+          workout_split_preference: form.workout_split_preference,
           meals_per_day: int(form.meals_per_day),
           meal_times: form.meal_times,
           dietary_restrictions: form.dietary_restrictions,
@@ -566,6 +642,13 @@ function Onboarding() {
           cooking_time: form.cooking_time,
           supplements: form.supplements || null,
         },
+        activities: form.activities
+          .filter((a) => a.activity && a.weekdays.length > 0)
+          .map((a) => ({
+            name: a.activity,
+            weekdays: a.weekdays,
+            duration_min: int(a.duration_min) ?? 60,
+          })),
         screening: {
           diabetes: form.diabetes,
           hypertension: form.hypertension,
@@ -780,6 +863,18 @@ function Onboarding() {
                 />
               </Field>
             </div>
+            <div className="mt-4">
+              <Field
+                label="Estilo de treino preferido"
+                hint="Não sabe? Deixe em automático que a gente monta pra você."
+              >
+                <PillGroup
+                  options={SPLIT_PREFERENCE}
+                  value={form.workout_split_preference}
+                  onChange={(v) => set("workout_split_preference", v)}
+                />
+              </Field>
+            </div>
             {form.training_place && form.training_place !== "gym" ? (
               <div className="mt-4">
                 <Field label="Equipamentos disponíveis">
@@ -791,6 +886,79 @@ function Onboarding() {
                 </Field>
               </div>
             ) : null}
+          </SectionCard>
+
+          <SectionCard
+            title="Outras atividades físicas"
+            description="Jiu-jitsu, natação, corrida... o gasto calórico entra na sua meta diária."
+          >
+            <div className="space-y-4">
+              {form.activities.map((a, i) => (
+                <div key={i} className="space-y-3 rounded-lg border border-border/60 p-3">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1">
+                      <Select
+                        value={a.activity}
+                        onValueChange={(v) => updateActivity(i, { activity: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Escolha a atividade" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ACTIVITY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeActivity(i)}
+                      aria-label="Remover atividade"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Dias da semana">
+                      <div className="flex flex-wrap gap-1.5">
+                        {WEEKDAY_LABELS.map((l, day) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => toggleActivityWeekday(i, day)}
+                            className={cn(
+                              "h-8 w-9 rounded-md border text-xs font-medium transition-colors",
+                              a.weekdays.includes(day)
+                                ? "border-accent bg-accent text-accent-foreground"
+                                : "border-border/60 text-muted-foreground hover:border-accent/50",
+                            )}
+                          >
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                    <Field label="Duração (min)">
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        value={a.duration_min}
+                        onChange={(e) => updateActivity(i, { duration_min: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={addActivity}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Adicionar atividade
+              </Button>
+            </div>
           </SectionCard>
         </div>
       ) : null}

@@ -1,6 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Minus, Plus, RefreshCw, Replace, Target, Trash2, UtensilsCrossed } from "lucide-react";
+import {
+  Minus,
+  Plus,
+  RefreshCw,
+  Replace,
+  Search,
+  Target,
+  Trash2,
+  UtensilsCrossed,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,17 +46,22 @@ import {
 import {
   useActiveGoal,
   useAddMealItem,
+  useDeleteFoodLog,
   useDeleteMealItem,
+  useFoodLogsToday,
   useFoods,
   useGenerateDiet,
+  useLogFreeFood,
   useMealPlan,
   useSubstitutions,
   useSwapMealItem,
   useUpdateMealItem,
   useUpdateMealTime,
 } from "@/lib/db";
-import type { FoodItem, MealItemRow } from "@/lib/db";
+import type { FoodItem, FoodLogRow, MealItemRow } from "@/lib/db";
 import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
+import { searchOffProducts } from "@/lib/openfoodfacts";
+import type { OffProduct } from "@/lib/openfoodfacts";
 
 export const Route = createFileRoute("/_authenticated/dieta")({
   component: Dieta,
@@ -81,6 +95,7 @@ function Dieta() {
   const foods = useFoods();
   const subs = useSubstitutions();
   const generate = useGenerateDiet();
+  const foodLogs = useFoodLogsToday();
 
   if (goal.isLoading || mealPlan.isLoading) return <LoadingBlock rows={5} />;
 
@@ -139,6 +154,23 @@ function Dieta() {
   const meals = (data.meals ?? []) as unknown as MealWithItems[];
   const totals = macroTotals(meals.flatMap((m) => m.meal_items ?? []));
 
+  const extraLogs = (foodLogs.data ?? []).filter((l) => !l.meal_id);
+  const extraTotals = extraLogs.reduce(
+    (a, l) => ({
+      kcal: a.kcal + Number(l.calories ?? 0),
+      p: a.p + Number(l.protein_g ?? 0),
+      c: a.c + Number(l.carbs_g ?? 0),
+      f: a.f + Number(l.fat_g ?? 0),
+    }),
+    { kcal: 0, p: 0, c: 0, f: 0 },
+  );
+  const consumed = {
+    kcal: totals.kcal + extraTotals.kcal,
+    p: totals.p + extraTotals.p,
+    c: totals.c + extraTotals.c,
+    f: totals.f + extraTotals.f,
+  };
+
   const subsByFood = new Map<string, FoodItem[]>();
   for (const s of (subs.data ?? []) as unknown as SubRow[]) {
     if (s.food_item_id && s.substitute) {
@@ -158,14 +190,18 @@ function Dieta() {
 
       <SectionCard
         title="Resumo do dia"
-        description="Comparado com as metas da sua estratégia."
+        description={
+          extraTotals.kcal > 0
+            ? `Plano + ${formatKcal(extraTotals.kcal)} registrados fora do plano.`
+            : "Comparado com as metas da sua estratégia."
+        }
         icon={<Target className="h-4 w-4" />}
         accent="green"
       >
         <div className="space-y-3">
           <AdherenceBar
             label="Calorias"
-            value={totals.kcal}
+            value={consumed.kcal}
             target={g.target_calories}
             unit="kcal"
             bar="[&>div]:bg-accent"
@@ -173,21 +209,21 @@ function Dieta() {
           <div className="grid gap-3 sm:grid-cols-3">
             <AdherenceBar
               label="Proteína"
-              value={totals.p}
+              value={consumed.p}
               target={g.protein_g}
               unit="g"
               bar="[&>div]:bg-chart-1"
             />
             <AdherenceBar
               label="Carboidrato"
-              value={totals.c}
+              value={consumed.c}
               target={g.carbs_g}
               unit="g"
               bar="[&>div]:bg-chart-3"
             />
             <AdherenceBar
               label="Gordura"
-              value={totals.f}
+              value={consumed.f}
               target={g.fat_g}
               unit="g"
               bar="[&>div]:bg-chart-4"
@@ -195,6 +231,8 @@ function Dieta() {
           </div>
         </div>
       </SectionCard>
+
+      <FreeFoodLog foods={foods.data ?? []} entries={extraLogs} />
 
       {mealGapWarnings(meals.map((m) => m.scheduled_time)).map((w, i) => (
         <AlertNote key={i} tone="warning">
@@ -235,6 +273,213 @@ function AdherenceBar({
       </div>
       <Progress value={pct} className={cn("mt-1.5 h-2", bar)} />
     </div>
+  );
+}
+
+type PickedFood = {
+  name: string;
+  kcal100: number;
+  protein100: number;
+  carbs100: number;
+  fat100: number;
+  source: "catálogo" | "Open Food Facts";
+};
+
+function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRow[] }) {
+  const logFood = useLogFreeFood();
+  const deleteLog = useDeleteFoodLog();
+  const [query, setQuery] = useState("");
+  const [offResults, setOffResults] = useState<OffProduct[]>([]);
+  const [offLoading, setOffLoading] = useState(false);
+  const [picked, setPicked] = useState<PickedFood | null>(null);
+  const [grams, setGrams] = useState("100");
+
+  const localResults =
+    query.trim().length >= 2
+      ? foods.filter((f) => f.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+      : [];
+
+  async function runOffSearch() {
+    if (query.trim().length < 2) return;
+    setOffLoading(true);
+    try {
+      const results = await searchOffProducts(query);
+      setOffResults(results);
+    } catch {
+      toast.error("Não foi possível buscar na Open Food Facts", {
+        description: "Verifique sua conexão e tente novamente.",
+      });
+    } finally {
+      setOffLoading(false);
+    }
+  }
+
+  function pickLocal(f: FoodItem) {
+    const ratio = 100 / (f.portion || 100);
+    setPicked({
+      name: f.name,
+      kcal100: f.calories * ratio,
+      protein100: f.protein_g * ratio,
+      carbs100: f.carbs_g * ratio,
+      fat100: f.fat_g * ratio,
+      source: "catálogo",
+    });
+    setGrams(String(f.portion || 100));
+  }
+
+  function pickOff(p: OffProduct) {
+    setPicked({
+      name: p.name,
+      kcal100: p.kcal100,
+      protein100: p.protein100,
+      carbs100: p.carbs100,
+      fat100: p.fat100,
+      source: "Open Food Facts",
+    });
+    setGrams("100");
+  }
+
+  function confirmLog() {
+    if (!picked) return;
+    const g = Number(grams);
+    if (!g || g <= 0) return;
+    const ratio = g / 100;
+    logFood.mutate(
+      {
+        name: picked.name,
+        calories: Math.round(picked.kcal100 * ratio),
+        protein_g: Math.round(picked.protein100 * ratio * 10) / 10,
+        carbs_g: Math.round(picked.carbs100 * ratio * 10) / 10,
+        fat_g: Math.round(picked.fat100 * ratio * 10) / 10,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Registrado!", { description: `${picked.name} adicionado ao seu dia.` });
+          setPicked(null);
+          setQuery("");
+          setOffResults([]);
+        },
+        onError: (e) =>
+          toast.error("Não foi possível registrar", {
+            description: e instanceof Error ? e.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  return (
+    <SectionCard
+      title="Registrar alimento"
+      description="Comeu algo fora do plano? Registre aqui para contar nas calorias de hoje."
+      icon={<Search className="h-4 w-4" />}
+      accent="amber"
+    >
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            placeholder="Ex.: bolo de chocolate, presunto, pizza..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={runOffSearch}
+            disabled={offLoading || query.trim().length < 2}
+          >
+            <Search className="mr-1.5 h-4 w-4" />
+            {offLoading ? "Buscando..." : "Buscar"}
+          </Button>
+        </div>
+
+        {localResults.length > 0 || offResults.length > 0 ? (
+          <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-1">
+            {localResults.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => pickLocal(f)}
+                className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+              >
+                <span className="truncate">{f.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {Math.round(f.calories)} kcal / {f.portion}
+                  {f.unit}
+                </span>
+              </button>
+            ))}
+            {offResults.map((p, i) => (
+              <button
+                key={`${p.name}-${i}`}
+                type="button"
+                onClick={() => pickOff(p)}
+                className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {p.name}
+                  {p.brand ? <span className="text-muted-foreground"> · {p.brand}</span> : null}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {Math.round(p.kcal100)} kcal/100g
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {picked ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{picked.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {Math.round(picked.kcal100)} kcal/100g · {picked.source}
+              </p>
+            </div>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={grams}
+              onChange={(e) => setGrams(e.target.value)}
+              className="h-9 w-24"
+            />
+            <span className="text-xs text-muted-foreground">g</span>
+            <Button type="button" size="sm" onClick={confirmLog} disabled={logFood.isPending}>
+              <Plus className="mr-1 h-4 w-4" /> Registrar
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(null)}>
+              Cancelar
+            </Button>
+          </div>
+        ) : null}
+
+        {entries.length > 0 ? (
+          <div className="divide-y border-t pt-2">
+            {entries.map((e) => (
+              <div key={e.id} className="flex items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{e.meal_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {Math.round(Number(e.calories))} kcal · P {formatNumber(e.protein_g)} · C{" "}
+                    {formatNumber(e.carbs_g)} · G {formatNumber(e.fat_g)}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground"
+                  onClick={() => deleteLog.mutate(e.id)}
+                  disabled={deleteLog.isPending}
+                  aria-label="Remover"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </SectionCard>
   );
 }
 

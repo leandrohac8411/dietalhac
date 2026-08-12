@@ -13,7 +13,14 @@ import {
   SectionCard,
   StatCard,
 } from "@/components/common";
-import { useActiveGoal, usePreferences, useProfile, useSaveStrategy, useScreening } from "@/lib/db";
+import {
+  useActiveGoal,
+  useActivities,
+  usePreferences,
+  useProfile,
+  useSaveStrategy,
+  useScreening,
+} from "@/lib/db";
 import {
   GOAL_LABELS,
   activityFactor,
@@ -28,6 +35,7 @@ import {
   goalFeasibility,
 } from "@/lib/fitness";
 import type { Scenario } from "@/lib/fitness";
+import { weeklyExtraKcalPerDay } from "@/lib/activities";
 
 export const Route = createFileRoute("/_authenticated/estrategia")({
   component: Estrategia,
@@ -38,11 +46,12 @@ function Estrategia() {
   const goal = useActiveGoal();
   const prefs = usePreferences();
   const screening = useScreening();
+  const activities = useActivities();
   const saveStrategy = useSaveStrategy();
 
   const [selected, setSelected] = useState<string | null>(null);
 
-  if (profile.isLoading || goal.isLoading) return <LoadingBlock rows={5} />;
+  if (profile.isLoading || goal.isLoading || activities.isLoading) return <LoadingBlock rows={5} />;
 
   const p = profile.data;
   const g = goal.data;
@@ -78,7 +87,16 @@ function Estrategia() {
     trainingDays: prefs.data?.training_days ?? null,
     dailySteps: prefs.data?.daily_steps ?? null,
   });
-  const maintenance = Math.round(calcTdee(bmr, factor));
+  const baseMaintenance = Math.round(calcTdee(bmr, factor));
+  const extraKcal = weeklyExtraKcalPerDay(
+    (activities.data ?? []).map((a) => ({
+      activity: a.name,
+      weekdays: a.weekdays,
+      duration_min: a.duration_min,
+    })),
+    weight,
+  );
+  const maintenance = baseMaintenance + extraKcal;
 
   const sc = screening.data;
   const riskFlags = Boolean(
@@ -166,7 +184,9 @@ function Estrategia() {
         <StatCard
           label="Manutenção"
           value={formatKcal(maintenance)}
-          hint={`Fator ${factor}`}
+          hint={
+            extraKcal > 0 ? `Fator ${factor} + ${extraKcal} kcal de atividades` : `Fator ${factor}`
+          }
           icon={<Target className="h-4 w-4" />}
           accent="green"
           tone="accent"

@@ -204,7 +204,10 @@ function makePicker(pool: FoodRow[]) {
       const fresh = used.has(f.id) ? 1 : 0;
       return preferred * 2 + fresh;
     };
-    const chosen = [...candidates].sort((a, b) => rank(a) - rank(b))[0]!;
+    // Embaralha antes de ordenar para variar entre empates de rank (ex.: "Regenerar"
+    // não repete sempre o mesmo alimento quando há várias opções igualmente boas).
+    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    const chosen = shuffled.sort((a, b) => rank(a) - rank(b))[0]!;
     used.add(chosen.id);
     return chosen;
   };
@@ -355,6 +358,7 @@ export const SPLIT_LABELS: Record<string, string> = {
   abcd: "Treino ABCD",
   upper_lower: "Superior e Inferior",
   home: "Treino em casa",
+  feminino: "Foco em pernas e glúteos",
 };
 
 export function chooseSplit(days: number, experience?: string | null): string {
@@ -373,7 +377,392 @@ type ExerciseRow = {
   alternative_name: string | null;
 };
 
-/** Gera o plano de treino conforme objetivo, experiência, dias e local. */
+type Blueprint = { name: string; groups: string[]; label: string };
+
+// Mapeia as áreas de prioridade do onboarding para os muscle_group do catálogo.
+const PRIORITY_TO_GROUPS: Record<string, string[]> = {
+  abdomen: ["abdomen"],
+  gluteos: ["gluteos", "abdutor"],
+  pernas: ["pernas", "posterior", "adutor"],
+  bracos: ["biceps", "triceps"],
+  costas: ["costas"],
+  peito: ["peito"],
+  ombros: ["ombros"],
+};
+
+const HOME_BLUEPRINTS: Record<number, Blueprint[]> = {
+  1: [
+    {
+      name: "Treino A — Corpo inteiro em casa",
+      groups: ["pernas", "gluteos", "peito", "costas", "abdomen"],
+      label: "Corpo inteiro",
+    },
+  ],
+  2: [
+    {
+      name: "Treino A — Inferiores e core",
+      groups: ["gluteos", "pernas", "posterior", "abdomen"],
+      label: "Inferiores e core",
+    },
+    {
+      name: "Treino B — Superiores e cardio",
+      groups: ["peito", "costas", "ombros", "cardio"],
+      label: "Superiores e cardio",
+    },
+  ],
+  3: [
+    {
+      name: "Treino A — Corpo inteiro em casa",
+      groups: ["pernas", "peito", "costas", "abdomen"],
+      label: "Corpo inteiro",
+    },
+    {
+      name: "Treino B — Inferiores e core",
+      groups: ["gluteos", "pernas", "abdomen", "cardio"],
+      label: "Inferiores e core",
+    },
+    {
+      name: "Treino C — Superiores e cardio",
+      groups: ["peito", "costas", "cardio", "abdomen"],
+      label: "Superiores e cardio",
+    },
+  ],
+};
+
+// Masculino: reflete o padrão real de fichas avançadas — pernas em 2 dias, um dia
+// dedicado a cada grupo de tronco, um dia de cárdio/abdômen quando sobra espaço.
+const MALE_BLUEPRINTS: Record<number, Blueprint[]> = {
+  1: [
+    {
+      name: "Treino A — Corpo inteiro",
+      groups: ["pernas", "peito", "costas", "ombros", "abdomen"],
+      label: "Corpo inteiro",
+    },
+  ],
+  2: [
+    {
+      name: "Treino A — Superiores",
+      groups: ["peito", "costas", "ombros", "biceps", "triceps"],
+      label: "Superiores",
+    },
+    {
+      name: "Treino B — Inferiores",
+      groups: ["pernas", "posterior", "gluteos", "panturrilha", "abdomen"],
+      label: "Inferiores",
+    },
+  ],
+  3: [
+    {
+      name: "Treino A — Peito e ombro",
+      groups: ["peito", "ombros"],
+      label: "Peito e ombro",
+    },
+    {
+      name: "Treino B — Costas, tríceps e bíceps",
+      groups: ["costas", "triceps", "biceps"],
+      label: "Costas, tríceps e bíceps",
+    },
+    {
+      name: "Treino C — Inferior",
+      groups: ["pernas", "posterior", "gluteos", "panturrilha"],
+      label: "Inferior",
+    },
+  ],
+  4: [
+    {
+      name: "Treino A — Peito e ombro",
+      groups: ["peito", "ombros"],
+      label: "Peito e ombro",
+    },
+    {
+      name: "Treino B — Costas, tríceps e bíceps",
+      groups: ["costas", "triceps", "biceps"],
+      label: "Costas, tríceps e bíceps",
+    },
+    {
+      name: "Treino C — Inferior",
+      groups: ["pernas", "posterior", "gluteos", "panturrilha"],
+      label: "Inferior",
+    },
+    {
+      name: "Treino D — Inferior (2ª sessão)",
+      groups: ["pernas", "adutor", "abdutor", "panturrilha"],
+      label: "Inferior",
+    },
+  ],
+  5: [
+    {
+      name: "Treino A — Pernas",
+      groups: ["pernas", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Pernas",
+    },
+    {
+      name: "Treino B — Peito e tríceps",
+      groups: ["peito", "triceps", "abdomen"],
+      label: "Peito e tríceps",
+    },
+    { name: "Treino C — Costas", groups: ["costas", "abdomen"], label: "Costas" },
+    {
+      name: "Treino D — Ombros e bíceps",
+      groups: ["ombros", "biceps", "abdomen"],
+      label: "Ombros e bíceps",
+    },
+    {
+      name: "Treino E — Pernas (2ª sessão)",
+      groups: ["posterior", "gluteos", "pernas", "panturrilha"],
+      label: "Pernas",
+    },
+  ],
+  6: [
+    {
+      name: "Treino A — Pernas",
+      groups: ["pernas", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Pernas",
+    },
+    {
+      name: "Treino B — Peito e tríceps",
+      groups: ["peito", "triceps", "abdomen"],
+      label: "Peito e tríceps",
+    },
+    { name: "Treino C — Costas", groups: ["costas", "lombar", "abdomen"], label: "Costas" },
+    {
+      name: "Treino D — Pernas (2ª sessão)",
+      groups: ["posterior", "gluteos", "pernas", "panturrilha"],
+      label: "Pernas",
+    },
+    {
+      name: "Treino E — Ombros e bíceps",
+      groups: ["ombros", "biceps", "abdomen"],
+      label: "Ombros e bíceps",
+    },
+    {
+      name: "Treino F — Cárdio e abdômen",
+      groups: ["cardio", "abdomen"],
+      label: "Cárdio e abdômen",
+    },
+  ],
+  7: [
+    {
+      name: "Treino A — Pernas",
+      groups: ["pernas", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Pernas",
+    },
+    {
+      name: "Treino B — Peito e tríceps",
+      groups: ["peito", "triceps", "abdomen"],
+      label: "Peito e tríceps",
+    },
+    { name: "Treino C — Costas", groups: ["costas", "lombar", "abdomen"], label: "Costas" },
+    {
+      name: "Treino D — Pernas (2ª sessão)",
+      groups: ["posterior", "gluteos", "pernas", "panturrilha"],
+      label: "Pernas",
+    },
+    {
+      name: "Treino E — Ombros e bíceps",
+      groups: ["ombros", "biceps", "abdomen"],
+      label: "Ombros e bíceps",
+    },
+    {
+      name: "Treino F — Cárdio e abdômen",
+      groups: ["cardio", "abdomen"],
+      label: "Cárdio e abdômen",
+    },
+    {
+      name: "Treino G — Peito e costas (extra)",
+      groups: ["peito", "costas"],
+      label: "Peito e costas",
+    },
+  ],
+};
+
+// Feminino: reflete o padrão real das fichas — a maioria dos dias é glúteo/perna,
+// tronco (peito/costas/ombro/braço) fica comprimido em 1-2 dias de volume menor.
+const FEMALE_BLUEPRINTS: Record<number, Blueprint[]> = {
+  1: [
+    {
+      name: "Treino A — Pernas e glúteos",
+      groups: ["gluteos", "pernas", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Pernas e glúteos",
+    },
+  ],
+  2: [
+    {
+      name: "Treino A — Glúteos e pernas",
+      groups: ["gluteos", "pernas", "adutor", "abdutor", "panturrilha"],
+      label: "Glúteos e pernas",
+    },
+    {
+      name: "Treino B — Tronco",
+      groups: ["peito", "costas", "ombros", "biceps", "triceps", "abdomen"],
+      label: "Tronco",
+    },
+  ],
+  3: [
+    {
+      name: "Treino A — Glúteos, posterior e panturrilha",
+      groups: ["gluteos", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Glúteos e posterior",
+    },
+    {
+      name: "Treino B — Tronco e abdômen",
+      groups: ["peito", "costas", "ombros", "abdomen"],
+      label: "Tronco e abdômen",
+    },
+    {
+      name: "Treino C — Pernas completas",
+      groups: ["pernas", "gluteos", "posterior", "panturrilha"],
+      label: "Pernas completas",
+    },
+  ],
+  4: [
+    {
+      name: "Treino A — Glúteos e posterior",
+      groups: ["gluteos", "posterior", "adutor", "abdutor", "panturrilha"],
+      label: "Glúteos e posterior",
+    },
+    {
+      name: "Treino B — Peito e costas",
+      groups: ["peito", "costas", "abdomen"],
+      label: "Peito e costas",
+    },
+    {
+      name: "Treino C — Pernas completas",
+      groups: ["pernas", "gluteos", "posterior", "panturrilha"],
+      label: "Pernas completas",
+    },
+    {
+      name: "Treino D — Ombros e braços",
+      groups: ["ombros", "biceps", "triceps", "abdomen"],
+      label: "Ombros e braços",
+    },
+  ],
+  5: [
+    {
+      name: "Treino A — Glúteos e posterior",
+      groups: ["gluteos", "posterior", "adutor", "abdutor"],
+      label: "Glúteos e posterior",
+    },
+    {
+      name: "Treino B — Peito, tríceps e ombros",
+      groups: ["peito", "triceps", "ombros"],
+      label: "Peito, tríceps e ombros",
+    },
+    {
+      name: "Treino C — Pernas completas",
+      groups: ["pernas", "gluteos", "posterior", "panturrilha"],
+      label: "Pernas completas",
+    },
+    {
+      name: "Treino D — Costas e bíceps",
+      groups: ["costas", "biceps", "abdomen"],
+      label: "Costas e bíceps",
+    },
+    {
+      name: "Treino E — Glúteos (2ª sessão)",
+      groups: ["gluteos", "abdutor", "adutor", "panturrilha"],
+      label: "Glúteos",
+    },
+  ],
+  6: [
+    {
+      name: "Treino A — Glúteos e posterior",
+      groups: ["gluteos", "posterior", "adutor", "abdutor"],
+      label: "Glúteos e posterior",
+    },
+    {
+      name: "Treino B — Peito, tríceps e ombros",
+      groups: ["peito", "triceps", "ombros"],
+      label: "Peito, tríceps e ombros",
+    },
+    {
+      name: "Treino C — Pernas completas",
+      groups: ["pernas", "gluteos", "posterior", "panturrilha"],
+      label: "Pernas completas",
+    },
+    {
+      name: "Treino D — Costas e bíceps",
+      groups: ["costas", "biceps", "abdomen"],
+      label: "Costas e bíceps",
+    },
+    {
+      name: "Treino E — Glúteos (2ª sessão)",
+      groups: ["gluteos", "abdutor", "adutor", "panturrilha"],
+      label: "Glúteos",
+    },
+    {
+      name: "Treino F — Cárdio e abdômen",
+      groups: ["cardio", "abdomen"],
+      label: "Cárdio e abdômen",
+    },
+  ],
+  7: [
+    {
+      name: "Treino A — Glúteos e posterior",
+      groups: ["gluteos", "posterior", "adutor", "abdutor"],
+      label: "Glúteos e posterior",
+    },
+    {
+      name: "Treino B — Peito, tríceps e ombros",
+      groups: ["peito", "triceps", "ombros"],
+      label: "Peito, tríceps e ombros",
+    },
+    {
+      name: "Treino C — Pernas completas",
+      groups: ["pernas", "gluteos", "posterior", "panturrilha"],
+      label: "Pernas completas",
+    },
+    {
+      name: "Treino D — Costas e bíceps",
+      groups: ["costas", "biceps", "abdomen"],
+      label: "Costas e bíceps",
+    },
+    {
+      name: "Treino E — Glúteos (2ª sessão)",
+      groups: ["gluteos", "abdutor", "adutor", "panturrilha"],
+      label: "Glúteos",
+    },
+    {
+      name: "Treino F — Cárdio e abdômen",
+      groups: ["cardio", "abdomen"],
+      label: "Cárdio e abdômen",
+    },
+    {
+      name: "Treino G — Pernas (extra)",
+      groups: ["pernas", "posterior", "panturrilha"],
+      label: "Pernas",
+    },
+  ],
+};
+
+const SPLIT_PREFERENCE_DAYS: Record<string, number> = { ab: 2, abc: 3, abcd: 4 };
+
+function pickBlueprint(
+  days: number,
+  sex: string | null | undefined,
+  home: boolean,
+  splitPreference?: string | null,
+): Blueprint[] {
+  const d = clampDays(days);
+  if (home) return HOME_BLUEPRINTS[Math.min(d, 3)] ?? HOME_BLUEPRINTS[3]!;
+  const table = sex === "feminino" ? FEMALE_BLUEPRINTS : MALE_BLUEPRINTS;
+
+  // Com um estilo explícito (AB/ABC/ABCD), o split escolhido cicla (A,B,C,A,B,C...)
+  // independente de quantos dias por semana a pessoa treina, em vez de ganhar um
+  // dia extra dedicado. "auto" mantém o comportamento por contagem de dias.
+  if (splitPreference && splitPreference in SPLIT_PREFERENCE_DAYS) {
+    const fixedDays = SPLIT_PREFERENCE_DAYS[splitPreference]!;
+    return table[fixedDays] ?? table[3]!;
+  }
+
+  return table[d] ?? table[3]!;
+}
+
+function clampDays(d: number): number {
+  return Math.min(Math.max(Math.round(d), 1), 7);
+}
+
+/** Gera o plano de treino conforme objetivo, experiência, dias, local, sexo e ênfase. */
 export function generateWorkoutPlan(params: {
   exercises: ExerciseRow[];
   days: number;
@@ -381,11 +770,46 @@ export function generateWorkoutPlan(params: {
   place: string;
   experience?: string | null;
   goal: string;
+  sex?: string | null;
+  priorityAreas?: string[] | null;
+  priorityLevel?: string | null;
+  splitPreference?: string | null;
 }): { split: string; workouts: PlanWorkout[] } {
-  const split = params.place === "home" ? "home" : chooseSplit(params.days, params.experience);
   const home = params.place === "home" || params.place === "outdoor";
+  const days = clampDays(params.days);
+  const blueprints = pickBlueprint(days, params.sex, home, params.splitPreference).map((bp) => ({
+    ...bp,
+  }));
+  const explicitSplit =
+    params.splitPreference && params.splitPreference in SPLIT_PREFERENCE_DAYS
+      ? params.splitPreference
+      : null;
+  const split =
+    explicitSplit ??
+    (home ? "home" : params.sex === "feminino" ? "feminino" : chooseSplit(days, params.experience));
 
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
+  const baseMaxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
+
+  // Ênfase: expande as áreas de prioridade para muscle_group e amplia o volume dos
+  // dias que já tocam nessas áreas; se o foco não é "balanced" e nenhum dia do
+  // blueprint já cobre a prioridade, dedica o último dia (que normalmente repetiria
+  // um grupo já treinado) exclusivamente a ela.
+  const priorityGroups = (params.priorityAreas ?? []).flatMap((a) => PRIORITY_TO_GROUPS[a] ?? []);
+  if (priorityGroups.length > 0 && params.priorityLevel && params.priorityLevel !== "balanced") {
+    const alreadyCovered = blueprints.some((bp) =>
+      bp.groups.some((g) => priorityGroups.includes(g)),
+    );
+    const last = blueprints[blueprints.length - 1]!;
+    if (!alreadyCovered) {
+      blueprints[blueprints.length - 1] = {
+        name: `Treino extra — ${last.label.includes("Cárdio") ? "Foco" : "Ênfase"}`,
+        groups: [...new Set(priorityGroups)],
+        label: "Ênfase escolhida",
+      };
+    }
+  }
+
   const byGroup = (groups: string[], limit: number) =>
     groups
       .flatMap((g) => pool.filter((e) => e.muscle_group === g))
@@ -400,130 +824,36 @@ export function generateWorkoutPlan(params: {
         alternative_name: e.alternative_name ?? undefined,
       }));
 
-  const maxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
-
-  const blueprints: Record<string, Array<{ name: string; groups: string[]; label: string }>> = {
-    full_body: [
-      {
-        name: "Treino A — Corpo inteiro",
-        groups: ["pernas", "peito", "costas", "ombros", "abdomen"],
-        label: "Corpo inteiro",
-      },
-      {
-        name: "Treino B — Corpo inteiro",
-        groups: ["posterior", "costas", "peito", "biceps", "abdomen"],
-        label: "Corpo inteiro",
-      },
-      {
-        name: "Treino C — Corpo inteiro",
-        groups: ["pernas", "gluteos", "ombros", "triceps", "cardio"],
-        label: "Corpo inteiro",
-      },
-    ],
-    ab: [
-      {
-        name: "Treino A — Superiores",
-        groups: ["peito", "costas", "ombros", "biceps", "triceps"],
-        label: "Superiores",
-      },
-      {
-        name: "Treino B — Inferiores",
-        groups: ["pernas", "posterior", "gluteos", "panturrilha", "abdomen"],
-        label: "Inferiores",
-      },
-    ],
-    upper_lower: [
-      {
-        name: "Treino A — Superior",
-        groups: ["peito", "costas", "ombros", "biceps"],
-        label: "Superior",
-      },
-      {
-        name: "Treino B — Inferior",
-        groups: ["pernas", "posterior", "gluteos", "panturrilha"],
-        label: "Inferior",
-      },
-      {
-        name: "Treino C — Superior",
-        groups: ["costas", "peito", "ombros", "triceps"],
-        label: "Superior",
-      },
-      {
-        name: "Treino D — Inferior",
-        groups: ["pernas", "gluteos", "posterior", "abdomen"],
-        label: "Inferior",
-      },
-    ],
-    abc: [
-      {
-        name: "Treino A — Peito, ombros e tríceps",
-        groups: ["peito", "ombros", "triceps"],
-        label: "Peito, ombros e tríceps",
-      },
-      {
-        name: "Treino B — Costas e bíceps",
-        groups: ["costas", "biceps", "abdomen"],
-        label: "Costas e bíceps",
-      },
-      {
-        name: "Treino C — Pernas",
-        groups: ["pernas", "posterior", "gluteos", "panturrilha"],
-        label: "Pernas",
-      },
-    ],
-    abcd: [
-      {
-        name: "Treino A — Peito e tríceps",
-        groups: ["peito", "triceps"],
-        label: "Peito e tríceps",
-      },
-      {
-        name: "Treino B — Costas e bíceps",
-        groups: ["costas", "biceps"],
-        label: "Costas e bíceps",
-      },
-      {
-        name: "Treino C — Pernas",
-        groups: ["pernas", "posterior", "panturrilha"],
-        label: "Pernas",
-      },
-      {
-        name: "Treino D — Ombros e abdômen",
-        groups: ["ombros", "abdomen", "gluteos"],
-        label: "Ombros e abdômen",
-      },
-    ],
-    home: [
-      {
-        name: "Treino A — Corpo inteiro em casa",
-        groups: ["pernas", "peito", "costas", "abdomen"],
-        label: "Corpo inteiro",
-      },
-      {
-        name: "Treino B — Inferiores e core",
-        groups: ["gluteos", "pernas", "abdomen", "cardio"],
-        label: "Inferiores e core",
-      },
-      {
-        name: "Treino C — Superiores e cardio",
-        groups: ["peito", "costas", "cardio", "abdomen"],
-        label: "Superiores e cardio",
-      },
-    ],
-  };
-
-  const plans = blueprints[split] ?? blueprints["full_body"]!;
   const workouts: PlanWorkout[] = [];
   const weekdays = [1, 2, 3, 4, 5, 6, 0];
+  const cardioPool = pool.filter((e) => e.muscle_group === "cardio");
 
-  for (let i = 0; i < params.days; i += 1) {
-    const bp = plans[i % plans.length]!;
+  for (let i = 0; i < days; i += 1) {
+    const bp = blueprints[i % blueprints.length]!;
+    const hasPriority = bp.groups.some((g) => priorityGroups.includes(g));
+    const maxEx = hasPriority ? baseMaxEx + 1 : baseMaxEx;
+    const exs = byGroup(bp.groups, maxEx);
+
+    // Finaliza todo treino de musculação com um cardio curto, como no treino de
+    // referência do usuário — dias que já são de cárdio puro não repetem.
+    if (!bp.groups.includes("cardio") && cardioPool.length > 0) {
+      const c = cardioPool[i % cardioPool.length]!;
+      exs.push({
+        exercise_name: c.name,
+        sets: 1,
+        reps: "12-15 min",
+        rest_seconds: 0,
+        difficulty: c.difficulty ?? "iniciante",
+        alternative_name: c.alternative_name ?? undefined,
+      });
+    }
+
     workouts.push({
       name: bp.name,
       muscle_groups: bp.label,
       weekday: weekdays[i] ?? 1,
       estimated_min: params.durationMin,
-      exercises: byGroup(bp.groups, maxEx),
+      exercises: exs,
     });
   }
 
