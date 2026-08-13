@@ -285,11 +285,13 @@ type PickedFood = {
   carbs100: number;
   fat100: number;
   source: "catálogo" | "Open Food Facts";
+  unit: "g" | "ml" | "g/ml";
 };
 
 type DraftComponent = {
   name: string;
   quantity: number;
+  unit: "g" | "ml" | "g/ml";
   calories: number;
   protein_g: number;
   carbs_g: number;
@@ -309,9 +311,26 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
 
+  const normalizeSearch = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/bally/g, "baly")
+      .replace(/\bcoca zero\b/g, "coca cola zero")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const matchesSearch = (name: string, search: string) => {
+    const normalizedName = normalizeSearch(name);
+    const normalizedQuery = normalizeSearch(search);
+    return (
+      normalizedName.replace(/\s+/g, "").includes(normalizedQuery.replace(/\s+/g, "")) ||
+      normalizedQuery.split(/\s+/).every((token) => normalizedName.includes(token))
+    );
+  };
   const localResults =
     query.trim().length >= 2
-      ? foods.filter((f) => f.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+      ? foods.filter((f) => matchesSearch(f.name, query.trim())).slice(0, 12)
       : [];
 
   async function runOffSearch() {
@@ -338,6 +357,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
       carbs100: f.carbs_g * ratio,
       fat100: f.fat_g * ratio,
       source: "catálogo",
+      unit: f.unit === "ml" ? "ml" : "g",
     });
     setGrams(String(f.portion || 100));
   }
@@ -350,6 +370,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
       carbs100: p.carbs100,
       fat100: p.fat100,
       source: "Open Food Facts",
+      unit: "g/ml",
     });
     setGrams("100");
   }
@@ -362,6 +383,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
     return {
       name: picked.name,
       quantity: g,
+      unit: picked.unit,
       calories: Math.round(picked.kcal100 * ratio),
       protein_g: Math.round(picked.protein100 * ratio * 10) / 10,
       carbs_g: Math.round(picked.carbs100 * ratio * 10) / 10,
@@ -520,7 +542,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
               onChange={(e) => setGrams(e.target.value)}
               className="h-9 w-24"
             />
-            <span className="text-xs text-muted-foreground">g</span>
+            <span className="text-xs text-muted-foreground">{picked.unit}</span>
             <Button type="button" size="sm" onClick={confirmLog} disabled={logFood.isPending}>
               <Plus className="mr-1 h-4 w-4" /> Registrar
             </Button>
@@ -592,7 +614,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
               {draftItems.map((item, index) => (
                 <div key={`${item.name}-${index}`} className="flex items-center gap-2 py-2 text-sm">
                   <span className="min-w-0 flex-1 truncate">
-                    {item.name} · {item.quantity} g/ml
+                    {item.name} · {item.quantity} {item.unit}
                   </span>
                   <span className="text-muted-foreground">{Math.round(item.calories)} kcal</span>
                   <Button

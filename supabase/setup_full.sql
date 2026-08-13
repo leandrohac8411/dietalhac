@@ -598,6 +598,22 @@ VALUES
   ('Chia','gordura',100,'g',486,17,42,31,34,16,4.20,ARRAY[]::text[]),
   -- Suplementos
   ('Whey protein concentrado','proteina',100,'g',400,80,8,6,0,300,8.00,ARRAY['animal','laticinio','lactose'])
+  ,('Suco de laranja integral','outros',100,'ml',45,0.7,10.4,0.2,0.2,1,1.20,ARRAY[]::text[])
+  ,('Suco de uva integral','outros',100,'ml',60,0.2,14.8,0.1,0.2,3,1.80,ARRAY[]::text[])
+  ,('Coca-Cola Zero Açúcar','outros',100,'ml',0,0,0,0,0,14,0.80,ARRAY['zero_acucar']::text[])
+  ,('Refrigerante cola zero açúcar','outros',100,'ml',0,0,0,0,0,14,0.60,ARRAY['zero_acucar']::text[])
+  ,('Água de coco','outros',100,'ml',22,0,5.3,0,0,20,0.90,ARRAY[]::text[])
+  ,('Limonada sem açúcar','outros',100,'ml',7,0.1,2.4,0,0.1,1,0.50,ARRAY['zero_acucar']::text[])
+  ,('Energético tradicional','outros',100,'ml',45,0,11,0,0,40,1.20,ARRAY['cafeina']::text[])
+  ,('Energético zero açúcar','outros',100,'ml',2,0,0.5,0,0,45,1.30,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Monster Energy tradicional','outros',100,'ml',45,0,11,0,0,40,1.50,ARRAY['cafeina']::text[])
+  ,('Monster Ultra zero açúcar','outros',100,'ml',2,0,0.5,0,0,45,1.60,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Red Bull Energy Drink','outros',100,'ml',46,0,11,0,0,40,1.80,ARRAY['cafeina']::text[])
+  ,('Red Bull Sugarfree','outros',100,'ml',3,0,0.7,0,0,40,1.90,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Baly Energy Drink tradicional','outros',100,'ml',45,0,11,0,0,40,1.00,ARRAY['cafeina']::text[])
+  ,('Baly Energy Drink zero açúcar','outros',100,'ml',2,0,0.5,0,0,45,1.10,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Pré-treino em pó sem açúcar','suplemento',10,'g',0,0,0,0,0,0,1.50,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Creatina monohidratada','suplemento',5,'g',0,0,0,0,0,0,1.00,ARRAY[]::text[])
 ON CONFLICT (name) DO UPDATE SET
   category = EXCLUDED.category,
   portion = EXCLUDED.portion,
