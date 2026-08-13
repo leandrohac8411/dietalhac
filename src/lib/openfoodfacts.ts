@@ -38,7 +38,11 @@ export async function searchOffProducts(query: string): Promise<OffProduct[]> {
   url.searchParams.set("page_size", "8");
   url.searchParams.set("fields", "product_name,brands,nutriments");
 
-  const res = await fetch(url.toString());
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const res = await fetch(url.toString(), { signal: controller.signal }).finally(() =>
+    clearTimeout(timeout),
+  );
   if (!res.ok) throw new Error("Não foi possível buscar na Open Food Facts.");
   const data = (await res.json()) as { hits?: OffHit[] };
 

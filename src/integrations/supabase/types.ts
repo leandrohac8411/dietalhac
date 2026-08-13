@@ -743,6 +743,7 @@ export type Database = {
           supplements: string | null;
           training_days: number | null;
           training_duration_min: number | null;
+          training_time: string | null;
           training_place: string | null;
           updated_at: string;
           user_id: string;
@@ -780,6 +781,7 @@ export type Database = {
           supplements?: string | null;
           training_days?: number | null;
           training_duration_min?: number | null;
+          training_time?: string | null;
           training_place?: string | null;
           updated_at?: string;
           user_id: string;
@@ -817,6 +819,7 @@ export type Database = {
           supplements?: string | null;
           training_days?: number | null;
           training_duration_min?: number | null;
+          training_time?: string | null;
           training_place?: string | null;
           updated_at?: string;
           user_id?: string;

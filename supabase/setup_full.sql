@@ -105,6 +105,10 @@ CREATE TABLE public.user_preferences (
   sleep_time TEXT,
   training_days INTEGER,
   training_duration_min INTEGER,
+  training_time TEXT CHECK (
+    training_time IS NULL
+    OR training_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+  ),
   experience_level TEXT,
   training_place TEXT,
   equipment TEXT[] DEFAULT '{}',

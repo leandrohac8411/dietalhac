@@ -14,6 +14,9 @@ const inputSchema = z.object({
   restrictions: z.array(z.string()).max(20),
   dislikes: z.string().nullable(),
   allergies: z.string().nullable(),
+  likedFoods: z.string().nullable(),
+  supplements: z.string().nullable(),
+  trainingTime: z.string().nullable(),
 });
 
 const outputSchema = z.object({
@@ -62,7 +65,7 @@ export const generateNaturalDiet = createServerFn({ method: "POST" })
             {
               role: "system",
               content:
-                "Você organiza refeições brasileiras comuns e apetitosas. Use exclusivamente os IDs fornecidos. Monte combinações culinariamente naturais: pão precisa de recheio; fruta é acompanhamento ou combina com iogurte/aveia; almoço e jantar devem parecer pratos reais. Nunca invente alimentos, macros ou IDs. Evite repetir o mesmo alimento em refeições diferentes.",
+                "Você organiza refeições brasileiras comuns e apetitosas. Use exclusivamente os IDs fornecidos. Respeite os alimentos preferidos, suplementos, aversões e o contexto de treino recebidos. Refeições marcadas como pré-treino devem ser leves, com carboidrato e proteína; pós-treino deve conter proteína e carboidrato. Pão precisa de recheio; fruta é acompanhamento ou combina com iogurte/aveia; almoço e jantar devem parecer pratos reais. Nunca invente alimentos, macros ou IDs. Evite repetir o mesmo alimento em refeições diferentes.",
             },
             { role: "user", content: JSON.stringify(data) },
           ],

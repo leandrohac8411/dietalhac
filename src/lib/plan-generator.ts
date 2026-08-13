@@ -111,6 +111,23 @@ function blockedByText(name: string, text?: string | null): boolean {
     .some((tok) => n.includes(tok));
 }
 
+const DISLIKE_CATEGORY_ALIASES: Record<string, string[]> = {
+  vegetal: ["legume", "legumes", "verdura", "verduras", "vegetal", "vegetais"],
+  fruta: ["fruta", "frutas"],
+  peixe: ["peixe", "peixes", "frutos do mar"],
+  laticinio: ["laticinio", "laticinios", "leite e derivados"],
+  ovo: ["ovo", "ovos"],
+  leguminosa: ["feijao", "feijoes", "leguminosa", "leguminosas"],
+};
+
+function blockedCategory(food: FoodRow, text?: string | null): boolean {
+  if (!text) return false;
+  const tokens = deburr(text.toLowerCase())
+    .split(/[,;\n]+/)
+    .map((token) => token.trim());
+  return (DISLIKE_CATEGORY_ALIASES[food.category] ?? []).some((alias) => tokens.includes(alias));
+}
+
 /** Aplica as restrições alimentares às tags do alimento. */
 function allowedByRestrictions(food: FoodRow, restrictions: string[]): boolean {
   const t = food.tags ?? [];
@@ -134,13 +151,18 @@ export function eligibleDietFoods(params: {
   restrictions?: string[] | null;
   dislikes?: string | null;
   allergies?: string | null;
+  supplements?: string | null;
 }): FoodRow[] {
   const restrictions = params.restrictions ?? [];
+  const supplementTokens = preferenceTokens(params.supplements);
   return params.foods.filter(
     (food) =>
       allowedByRestrictions(food, restrictions) &&
       !blockedByText(food.name, params.dislikes) &&
-      !blockedByText(food.name, params.allergies),
+      !blockedCategory(food, params.dislikes) &&
+      !blockedByText(food.name, params.allergies) &&
+      (!isSupplement(food) ||
+        supplementTokens.some((token) => deburr(food.name.toLowerCase()).includes(token))),
   );
 }
 
@@ -243,7 +265,19 @@ const NATURAL_COMBOS: Record<string, string[][]> = {
 };
 
 /** Composição de cada refeição por papel, com preferências de alimento. */
-function archetype(name: string, lowCarb: boolean): Slot[] {
+type MealRole = "regular" | "pre_workout" | "post_workout";
+
+function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
+  if (role === "pre_workout")
+    return [
+      { cats: ["carboidrato", "fruta"], prefer: ["Banana", "Pão", "Tapioca", "Aveia"] },
+      { cats: ["laticinio", "proteina", "ovo"], prefer: ["Whey", "Iogurte", "Peito de peru"] },
+    ];
+  if (role === "post_workout")
+    return [
+      { cats: ["laticinio", "proteina", "peixe", "ovo"], prefer: ["Whey", "Iogurte", "Frango"] },
+      { cats: ["carboidrato", "fruta"], prefer: ["Arroz", "Batata", "Mandioca", "Banana"] },
+    ];
   switch (name) {
     case "Café da manhã":
       return lowCarb
@@ -293,15 +327,33 @@ function archetype(name: string, lowCarb: boolean): Slot[] {
 }
 
 /** Seletor com variedade: evita repetir alimentos e respeita preferências. */
-function makePicker(pool: FoodRow[]) {
-  const used = new Set<string>();
+function preferenceTokens(text?: string | null): string[] {
+  if (!text) return [];
+  return deburr(text.toLowerCase())
+    .split(/[,;\n]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function makePicker(
+  pool: FoodRow[],
+  likedFoods?: string | null,
+  supplements?: string | null,
+  used = new Set<string>(),
+) {
+  const liked = preferenceTokens(likedFoods);
+  const supplementNames = preferenceTokens(supplements);
   return (slot: Slot): FoodRow | undefined => {
     const candidates = pool.filter((f) => slot.cats.includes(f.category));
     if (candidates.length === 0) return undefined;
     const rank = (f: FoodRow) => {
       const preferred = slot.prefer && slot.prefer.some((p) => f.name.includes(p)) ? 0 : 1;
       const fresh = used.has(f.id) ? 1 : 0;
-      return preferred * 2 + fresh;
+      const normalized = deburr(f.name.toLowerCase());
+      const personal = [...liked, ...supplementNames].some((token) => normalized.includes(token))
+        ? 0
+        : 1;
+      return personal * 4 + preferred * 2 + fresh * 10;
     };
     // Embaralha antes de ordenar para variar entre empates de rank (ex.: "Regenerar"
     // não repete sempre o mesmo alimento quando há várias opções igualmente boas).
@@ -310,6 +362,45 @@ function makePicker(pool: FoodRow[]) {
     used.add(chosen.id);
     return chosen;
   };
+}
+
+function minutesOf(value?: string | null): number | null {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (hours === undefined || minutes === undefined || hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function workoutRoles(
+  times: string[],
+  trainingTime?: string | null,
+  trainingDurationMin?: number | null,
+): MealRole[] {
+  const roles: MealRole[] = times.map(() => "regular");
+  const start = minutesOf(trainingTime);
+  if (start === null) return roles;
+  const end = start + clampN(trainingDurationMin ?? 60, 15, 240);
+  const mealMinutes = times.map(minutesOf);
+  let preIndex = -1;
+  let postIndex = -1;
+  let preDistance = Infinity;
+  let postDistance = Infinity;
+  mealMinutes.forEach((meal, index) => {
+    if (meal === null) return;
+    const before = start - meal;
+    if (before >= 0 && before <= 180 && before < preDistance) {
+      preDistance = before;
+      preIndex = index;
+    }
+    const after = meal - end;
+    if (after >= 0 && after <= 180 && after < postDistance) {
+      postDistance = after;
+      postIndex = index;
+    }
+  });
+  if (preIndex >= 0) roles[preIndex] = "pre_workout";
+  if (postIndex >= 0) roles[postIndex] = "post_workout";
+  return roles;
 }
 
 type BuildItem = {
@@ -333,12 +424,212 @@ function macrosOf(items: BuildItem[]) {
   );
 }
 
-function scaleCategories(items: BuildItem[], cats: string[], factor: number) {
-  for (const it of items) {
-    if (cats.includes(it.food.category)) {
-      const [lo, hi] = CLAMP_GRAMS[it.food.category] ?? [10, 400];
-      it.grams = clampN(it.grams * factor, lo, hi);
+type DietTargets = { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+
+/** Limites clínicos de porção. A categoria sozinha não basta: 170 g pode ser
+ * normal para iogurte desnatado, mas é irreal para queijo gorduroso. */
+function portionBounds(food: FoodRow): [number, number] {
+  const name = deburr(food.name.toLowerCase());
+  if (isSupplement(food)) return [20, 40];
+  if (name.includes("aveia")) return [20, 40];
+  if (name.includes("chia")) return [5, 20];
+  if (name.includes("pasta de amendoim")) return [10, 20];
+  if (name.includes("cottage")) return [60, 150];
+  if (name.includes("queijo")) return [20, 60];
+  if (name.includes("iogurte") || name.includes("skyr")) return [100, 250];
+  if (name.includes("azeite") || name.includes("oleo")) return [0, 10];
+  if (name.includes("pao")) return [25, 100];
+  if (food.category === "fruta") return [80, 250];
+  if (food.category === "vegetal") return [50, 150];
+  if (food.category === "proteina" || food.category === "peixe") return [60, 200];
+  const fatPerProtein = food.protein_g > 0 ? food.fat_g / food.protein_g : Infinity;
+  if (food.category === "gordura") return [0, 15];
+  if (food.category === "laticinio" && fatPerProtein > 0.4) return [20, 80];
+  if (food.category === "laticinio") return [80, 300];
+  if (food.category === "ovo") return [50, 150];
+  return CLAMP_GRAMS[food.category] ?? [10, 400];
+}
+
+const MEAL_ENERGY_SHARES: Record<number, number[]> = {
+  3: [0.25, 0.4, 0.35],
+  4: [0.22, 0.34, 0.14, 0.3],
+  5: [0.2, 0.1, 0.32, 0.13, 0.25],
+  6: [0.2, 0.1, 0.3, 0.1, 0.22, 0.08],
+};
+
+function mealDistributionPenalty(items: BuildItem[], targets: DietTargets): number {
+  const mealCount = Math.max(1, ...items.map((item) => item.mealIndex + 1));
+  const shares = MEAL_ENERGY_SHARES[mealCount];
+  if (!shares) return 0;
+  let penalty = 0;
+  for (let index = 0; index < mealCount; index += 1) {
+    const meal = macrosOf(items.filter((item) => item.mealIndex === index));
+    const calorieTarget = targets.calories * (shares[index] ?? 1 / mealCount);
+    const proteinTarget = targets.protein * (shares[index] ?? 1 / mealCount);
+    const fatTarget = targets.fat * (shares[index] ?? 1 / mealCount);
+    penalty += ((meal.calories - calorieTarget) / Math.max(1, calorieTarget)) ** 2 * 0.1;
+    penalty += ((meal.protein - proteinTarget) / Math.max(1, proteinTarget)) ** 2 * 0.02;
+    const fatExcess = Math.max(0, meal.fat - fatTarget * 1.35) / Math.max(1, fatTarget);
+    penalty += fatExcess ** 2 * 0.8;
+  }
+  return penalty;
+}
+
+/** Erro normalizado dos quatro alvos. Excesso de gordura e calorias recebe
+ * penalidade maior, pois era a regressão que criava dietas hiperlipídicas. */
+function macroObjective(items: BuildItem[], targets: DietTargets): number {
+  const m = macrosOf(items);
+  const relative = (actual: number, target: number) =>
+    target > 0 ? (actual - target) / target : 0;
+  const calorieError = relative(m.calories, targets.calories);
+  const proteinError = relative(m.protein, targets.protein);
+  const carbError = relative(m.carbs, targets.carbs);
+  const fatError = relative(m.fat, targets.fat);
+  return (
+    calorieError ** 2 * (calorieError > 0 ? 2.5 : 1.5) +
+    proteinError ** 2 * (proteinError < 0 ? 2 : 1.2) +
+    carbError ** 2 * 1.3 +
+    fatError ** 2 * (fatError > 0 ? 4 : 1.5) +
+    mealDistributionPenalty(items, targets)
+  );
+}
+
+/** Otimização discreta em passos de 5 g. O LLM escolhe combinações; somente
+ * este algoritmo decide as quantidades finais dentro de limites plausíveis. */
+function optimizePortions(items: BuildItem[], targets: DietTargets): void {
+  for (const item of items) {
+    const [lo, hi] = portionBounds(item.food);
+    item.grams = clampN(item.grams, lo, hi);
+  }
+
+  for (const step of [25, 10, 5]) {
+    for (let pass = 0; pass < 30; pass += 1) {
+      let improved = false;
+      for (const item of items) {
+        const [lo, hi] = portionBounds(item.food);
+        const original = item.grams;
+        let bestGrams = original;
+        let bestScore = macroObjective(items, targets);
+        for (const candidate of [original - step, original + step, lo, hi]) {
+          item.grams = clampN(candidate, lo, hi);
+          const score = macroObjective(items, targets);
+          if (score + 1e-9 < bestScore) {
+            bestScore = score;
+            bestGrams = item.grams;
+          }
+        }
+        item.grams = bestGrams;
+        if (bestGrams !== original) improved = true;
+      }
+      if (!improved) break;
     }
+  }
+}
+
+const proteinCategories = ["proteina", "peixe", "ovo", "laticinio"];
+const fatPerProtein = (food: FoodRow) =>
+  food.protein_g > 0 ? food.fat_g / food.protein_g : Infinity;
+
+function isSupplement(food: FoodRow): boolean {
+  const name = deburr(food.name.toLowerCase());
+  return name.includes("whey") || name.includes("proteina em po");
+}
+
+/** Repara uma seleção inviável antes de mexer nas porções. Mantém a escolha
+ * culinária da IA quando possível, mas troca o excesso de fontes gordurosas
+ * por fontes magras do catálogo. */
+function repairProteinSelection(
+  names: string[],
+  items: BuildItem[],
+  foods: FoodRow[],
+  targets: DietTargets,
+): void {
+  const used = new Set(items.map((item) => item.food.id));
+  const leanFoods = foods
+    .filter(
+      (food) =>
+        proteinCategories.includes(food.category) &&
+        food.protein_g / Math.max(1, food.portion) >= 0.08 &&
+        fatPerProtein(food) <= 0.3,
+    )
+    .sort((a, b) => fatPerProtein(a) - fatPerProtein(b));
+
+  const fattyItems = items
+    .filter(
+      (item) => proteinCategories.includes(item.food.category) && fatPerProtein(item.food) > 0.4,
+    )
+    .sort(
+      (a, b) =>
+        (b.food.fat_g * b.grams) / b.food.portion - (a.food.fat_g * a.grams) / a.food.portion,
+    );
+
+  for (const item of fattyItems) {
+    if (macrosOf(items).fat <= targets.fat * 1.05) break;
+    const mealName = names[item.mealIndex] ?? "";
+    const mainMeal = mealName === "Almoço" || mealName === "Jantar";
+    const preferredCategories = mainMeal ? ["proteina", "peixe"] : ["laticinio", "ovo", "proteina"];
+    const replacement = leanFoods.find(
+      (food) =>
+        preferredCategories.includes(food.category) &&
+        (!mainMeal || !isSupplement(food)) &&
+        !used.has(food.id),
+    );
+    if (!replacement) continue;
+    used.delete(item.food.id);
+    used.add(replacement.id);
+    item.food = replacement;
+    const [lo, hi] = portionBounds(replacement);
+    item.grams = clampN(BASE_GRAMS[replacement.category] ?? 100, lo, hi);
+    item.preparation = prep(replacement.category);
+  }
+}
+
+function repairMealCompatibility(names: string[], items: BuildItem[], foods: FoodRow[]): void {
+  const used = new Set(items.map((item) => item.food.id));
+  for (const item of items) {
+    const mealName = names[item.mealIndex] ?? "";
+    const mainMeal = mealName === "Almoço" || mealName === "Jantar";
+    if (!mainMeal || !isSupplement(item.food)) continue;
+    const replacement = foods.find(
+      (food) =>
+        ["proteina", "peixe", "ovo"].includes(food.category) &&
+        !isSupplement(food) &&
+        fatPerProtein(food) <= 0.4 &&
+        !used.has(food.id),
+    );
+    if (!replacement) continue;
+    used.delete(item.food.id);
+    used.add(replacement.id);
+    item.food = replacement;
+    const [lo, hi] = portionBounds(replacement);
+    item.grams = clampN(BASE_GRAMS[replacement.category] ?? 100, lo, hi);
+    item.preparation = prep(replacement.category);
+  }
+
+  for (let mealIndex = 0; mealIndex < names.length; mealIndex += 1) {
+    if (!names[mealIndex]?.startsWith("Café da manhã")) continue;
+    const mealItems = items.filter((item) => item.mealIndex === mealIndex);
+    const hasBowlCereal = mealItems.some((item) => {
+      const name = deburr(item.food.name.toLowerCase());
+      return name.includes("granola") || name.includes("aveia");
+    });
+    const egg = mealItems.find((item) => item.food.category === "ovo");
+    if (!hasBowlCereal || !egg) continue;
+    const dairy = foods.find((food) => {
+      const name = deburr(food.name.toLowerCase());
+      return (
+        food.category === "laticinio" &&
+        (name.includes("iogurte") || name.includes("skyr") || name.includes("leite")) &&
+        !used.has(food.id)
+      );
+    });
+    if (!dairy) continue;
+    used.delete(egg.food.id);
+    used.add(dairy.id);
+    egg.food = dairy;
+    const [lo, hi] = portionBounds(dairy);
+    egg.grams = clampN(BASE_GRAMS[dairy.category] ?? 170, lo, hi);
+    egg.preparation = undefined;
   }
 }
 
@@ -346,41 +637,12 @@ function balanceAndFormat(
   names: string[],
   times: string[],
   items: BuildItem[],
-  targets: { calories: number; protein: number; carbs: number; fat: number; fiber: number },
+  targets: DietTargets,
 ): PlanMeal[] {
   if (items.length === 0)
     return names.map((name, i) => ({ name, scheduled_time: times[i]!, items: [] }));
 
-  const proteinCats = ["proteina", "peixe", "ovo", "laticinio"];
-  const carbCats = ["carboidrato", "leguminosa", "fruta"];
-  const fatFrom = (category: string) =>
-    items
-      .filter((item) => item.food.category === category)
-      .reduce((sum, item) => sum + (item.food.fat_g * item.grams) / item.food.portion, 0);
-
-  for (let pass = 0; pass < 2; pass += 1) {
-    const macros = macrosOf(items);
-    if (macros.protein > 0)
-      scaleCategories(items, proteinCats, clampN(targets.protein / macros.protein, 0.6, 2.5));
-
-    const addedFat = fatFrom("gordura");
-    if (addedFat > 0) {
-      const totalFat = macrosOf(items).fat;
-      scaleCategories(
-        items,
-        ["gordura"],
-        clampN((targets.fat - (totalFat - addedFat)) / addedFat, 0.2, 3),
-      );
-    }
-
-    const current = macrosOf(items);
-    const carbTarget = Math.max(0, (targets.calories - current.protein * 4 - current.fat * 9) / 4);
-    const currentCarbs = items
-      .filter((item) => carbCats.includes(item.food.category))
-      .reduce((sum, item) => sum + (item.food.carbs_g * item.grams) / item.food.portion, 0);
-    if (currentCarbs > 0)
-      scaleCategories(items, carbCats, clampN(carbTarget / currentCarbs, 0.4, 2.4));
-  }
+  optimizePortions(items, targets);
 
   for (const item of items) item.grams = Math.max(5, Math.round(item.grams / 5) * 5);
   return names.map((name, index) => ({
@@ -390,6 +652,70 @@ function balanceAndFormat(
       .filter((item) => item.mealIndex === index)
       .map((item) => scaleFood(item.food, item.grams, item.preparation)),
   }));
+}
+
+export function mealPlanMacros(plan: PlanMeal[]) {
+  return plan
+    .flatMap((meal) => meal.items)
+    .reduce(
+      (total, item) => ({
+        calories: total.calories + item.calories,
+        protein: total.protein + item.protein_g,
+        carbs: total.carbs + item.carbs_g,
+        fat: total.fat + item.fat_g,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+}
+
+export function mealPlanDeviation(plan: PlanMeal[], targets: DietTargets): number {
+  const totals = mealPlanMacros(plan);
+  const relative = (actual: number, target: number) =>
+    target > 0 ? Math.abs(actual - target) / target : 0;
+  return (
+    relative(totals.calories, targets.calories) +
+    relative(totals.protein, targets.protein) +
+    relative(totals.carbs, targets.carbs) +
+    relative(totals.fat, targets.fat) * 2
+  );
+}
+
+export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets): boolean {
+  const totals = mealPlanMacros(plan);
+  const within = (actual: number, target: number, tolerance: number) =>
+    target <= 0 || Math.abs(actual - target) / target <= tolerance;
+  const shares = MEAL_ENERGY_SHARES[plan.length] ?? plan.map(() => 1 / Math.max(1, plan.length));
+  const mealsAreBalanced = plan.every((meal, index) => {
+    const mealFat = meal.items.reduce((sum, item) => sum + item.fat_g, 0);
+    const fatCeiling = Math.max(8, targets.fat * (shares[index] ?? 0) * 1.5);
+    const names = meal.items.map((item) => deburr(item.food_name.toLowerCase()));
+    const hasOmelet = names.some((name) => name.includes("omelete"));
+    const stacksOmeletFat =
+      hasOmelet &&
+      names.some(
+        (name) =>
+          name.includes("queijo") ||
+          name.includes("azeite") ||
+          name.includes("bacon") ||
+          name.includes("linguica") ||
+          name.includes("frango") ||
+          name.includes("carne") ||
+          name.includes("patinho") ||
+          name.includes("tilapia") ||
+          name.includes("camarao") ||
+          name.includes("atum") ||
+          name.includes("peru") ||
+          name.includes("ovo inteiro"),
+      );
+    return mealFat <= fatCeiling && !stacksOmeletFat;
+  });
+  return (
+    within(totals.calories, targets.calories, 0.08) &&
+    within(totals.protein, targets.protein, 0.1) &&
+    within(totals.carbs, targets.carbs, 0.12) &&
+    within(totals.fat, targets.fat, 0.1) &&
+    mealsAreBalanced
+  );
 }
 
 export type NaturalMealChoice = {
@@ -420,6 +746,17 @@ export function buildMealPlanFromChoices(params: {
       });
     });
   });
+  repairProteinSelection(
+    params.choices.map((meal) => meal.name),
+    items,
+    params.foods,
+    params.targets,
+  );
+  repairMealCompatibility(
+    params.choices.map((meal) => meal.name),
+    items,
+    params.foods,
+  );
   return balanceAndFormat(
     params.choices.map((meal) => meal.name),
     params.choices.map((meal) => meal.scheduled_time),
@@ -437,6 +774,10 @@ export function generateMealPlan(params: {
   restrictions?: string[] | null;
   dislikes?: string | null;
   allergies?: string | null;
+  likedFoods?: string | null;
+  supplements?: string | null;
+  trainingTime?: string | null;
+  trainingDurationMin?: number | null;
 }): PlanMeal[] {
   const restrictions = params.restrictions ?? [];
   const lowCarb = restrictions.includes("low_carb");
@@ -446,30 +787,42 @@ export function generateMealPlan(params: {
   const count = clampN(Math.round(params.mealsPerDay || 5), 3, 6);
   const names = MEALS_BY_COUNT[count] ?? MEALS_BY_COUNT[5]!;
   const times = names.map((name, i) => timeForMeal(name, params.mealTimes?.[i]));
+  const roles = workoutRoles(times, params.trainingTime, params.trainingDurationMin);
+  const displayNames = names.map((name, index) => {
+    if (roles[index] === "pre_workout") return `${name} (pré-treino)`;
+    if (roles[index] === "post_workout") return `${name} (pós-treino)`;
+    return name;
+  });
 
-  const pick = makePicker(pool);
+  const usedFoods = new Set<string>();
+  const pick = makePicker(pool, params.likedFoods, params.supplements, usedFoods);
   const items: BuildItem[] = [];
   names.forEach((name, mi) => {
-    const compatibleCombos = (NATURAL_COMBOS[name] ?? [])
+    const compatibleCombos = (roles[mi] === "regular" ? (NATURAL_COMBOS[name] ?? []) : [])
       .map((combo) => combo.map((foodName) => pool.find((food) => food.name === foodName)))
       .filter((combo) => combo.length > 0 && combo.every(Boolean)) as FoodRow[][];
     const chosenCombo = lowCarb
       ? undefined
-      : compatibleCombos[Math.floor(Math.random() * compatibleCombos.length)];
+      : [...compatibleCombos].sort((a, b) => {
+          const repeats = (combo: FoodRow[]) =>
+            combo.reduce((count, food) => count + Number(usedFoods.has(food.id)), 0);
+          return repeats(a) - repeats(b) || Math.random() - 0.5;
+        })[0];
 
     if (chosenCombo) {
-      chosenCombo.forEach((food) =>
+      chosenCombo.forEach((food) => {
+        usedFoods.add(food.id);
         items.push({
           food,
           grams: BASE_GRAMS[food.category] ?? 100,
           mealIndex: mi,
           preparation: prep(food.category),
-        }),
-      );
+        });
+      });
       return;
     }
 
-    for (const slot of archetype(name, lowCarb)) {
+    for (const slot of archetype(name, lowCarb, roles[mi] ?? "regular")) {
       const food = pick(slot);
       if (food) {
         items.push({
@@ -482,7 +835,9 @@ export function generateMealPlan(params: {
     }
   });
 
-  return balanceAndFormat(names, times, items, params.targets);
+  repairProteinSelection(names, items, pool, params.targets);
+  repairMealCompatibility(names, items, pool);
+  return balanceAndFormat(displayNames, times, items, params.targets);
 }
 
 export type PlanWorkoutExercise = {

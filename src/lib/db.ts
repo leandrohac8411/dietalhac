@@ -7,6 +7,8 @@ import {
   eligibleDietFoods,
   generateMealPlan,
   generateWorkoutPlan,
+  mealPlanDeviation,
+  mealPlanWithinTolerance,
 } from "@/lib/plan-generator";
 import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
 import { generateNaturalDiet } from "@/lib/diet-ai.functions";
@@ -907,7 +909,7 @@ export function useGenerateDiet() {
         fat: goal.fat_g ?? 0,
         fiber: goal.fiber_g ?? 0,
       };
-      const localPlan: PlanMeal[] = generateMealPlan({
+      const generationInput = {
         foods: catalog,
         mealsPerDay: prefs?.meals_per_day ?? 5,
         mealTimes: prefs?.meal_times ?? null,
@@ -915,13 +917,28 @@ export function useGenerateDiet() {
         restrictions: prefs?.dietary_restrictions ?? [],
         dislikes: prefs?.disliked_foods ?? null,
         allergies: prefs?.allergies ?? null,
-      });
+        likedFoods: prefs?.liked_foods ?? null,
+        supplements: prefs?.supplements ?? null,
+        trainingTime: prefs?.training_time ?? null,
+        trainingDurationMin: prefs?.training_duration_min ?? null,
+      };
+      // Uma única seleção aleatória pode ser culinariamente boa, mas inviável
+      // dentro das porções reais. Gera alternativas e mantém a de menor desvio.
+      const candidates = Array.from({ length: 30 }, () => generateMealPlan(generationInput));
+      const viableCandidates = candidates.filter((candidate) =>
+        mealPlanWithinTolerance(candidate, targets),
+      );
+      const candidatePool = viableCandidates.length > 0 ? viableCandidates : candidates;
+      const localPlan: PlanMeal[] = candidatePool.reduce((best, candidate) =>
+        mealPlanDeviation(candidate, targets) < mealPlanDeviation(best, targets) ? candidate : best,
+      );
 
       const eligibleFoods = eligibleDietFoods({
         foods: catalog,
         restrictions: prefs?.dietary_restrictions ?? [],
         dislikes: prefs?.disliked_foods ?? null,
         allergies: prefs?.allergies ?? null,
+        supplements: prefs?.supplements ?? null,
       });
       const aiChoices = await generateNaturalDiet({
         data: {
@@ -930,11 +947,25 @@ export function useGenerateDiet() {
           restrictions: prefs?.dietary_restrictions ?? [],
           dislikes: prefs?.disliked_foods ?? null,
           allergies: prefs?.allergies ?? null,
+          likedFoods: prefs?.liked_foods ?? null,
+          supplements: prefs?.supplements ?? null,
+          trainingTime: prefs?.training_time ?? null,
         },
       });
-      const plan: PlanMeal[] = aiChoices
+      const aiPlan = aiChoices
         ? buildMealPlanFromChoices({ foods: eligibleFoods, choices: aiChoices, targets })
-        : localPlan;
+        : null;
+      const plan: PlanMeal[] =
+        aiPlan &&
+        mealPlanWithinTolerance(aiPlan, targets) &&
+        mealPlanDeviation(aiPlan, targets) < mealPlanDeviation(localPlan, targets)
+          ? aiPlan
+          : localPlan;
+      if (!mealPlanWithinTolerance(plan, targets)) {
+        throw new Error(
+          "Não encontramos uma combinação com porções naturais dentro das suas metas. Seu plano atual foi preservado; tente regenerar novamente.",
+        );
+      }
 
       await supabase
         .from("meal_plans")

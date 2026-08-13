@@ -2,6 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Minus,
+  ListPlus,
+  PenLine,
   Plus,
   RefreshCw,
   Replace,
@@ -285,6 +287,15 @@ type PickedFood = {
   source: "catálogo" | "Open Food Facts";
 };
 
+type DraftComponent = {
+  name: string;
+  quantity: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
+
 function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRow[] }) {
   const logFood = useLogFreeFood();
   const deleteLog = useDeleteFoodLog();
@@ -293,6 +304,10 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
   const [offLoading, setOffLoading] = useState(false);
   const [picked, setPicked] = useState<PickedFood | null>(null);
   const [grams, setGrams] = useState("100");
+  const [draftName, setDraftName] = useState("");
+  const [draftItems, setDraftItems] = useState<DraftComponent[]>([]);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manual, setManual] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
 
   const localResults =
     query.trim().length >= 2
@@ -339,30 +354,92 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
     setGrams("100");
   }
 
-  function confirmLog() {
-    if (!picked) return;
+  function calculatedPicked(): DraftComponent | null {
+    if (!picked) return null;
     const g = Number(grams);
-    if (!g || g <= 0) return;
+    if (!g || g <= 0) return null;
     const ratio = g / 100;
+    return {
+      name: picked.name,
+      quantity: g,
+      calories: Math.round(picked.kcal100 * ratio),
+      protein_g: Math.round(picked.protein100 * ratio * 10) / 10,
+      carbs_g: Math.round(picked.carbs100 * ratio * 10) / 10,
+      fat_g: Math.round(picked.fat100 * ratio * 10) / 10,
+    };
+  }
+
+  function clearSelection() {
+    setPicked(null);
+    setQuery("");
+    setOffResults([]);
+  }
+
+  function confirmLog() {
+    const item = calculatedPicked();
+    if (!item) return;
+    logFood.mutate(item, {
+      onSuccess: () => {
+        toast.success("Registrado!", { description: `${item.name} adicionado ao seu dia.` });
+        clearSelection();
+      },
+      onError: (e) =>
+        toast.error("Não foi possível registrar", {
+          description: e instanceof Error ? e.message : "Tente novamente.",
+        }),
+    });
+  }
+
+  function addToDraft() {
+    const item = calculatedPicked();
+    if (!item) return;
+    setDraftItems((current) => [...current, item]);
+    clearSelection();
+  }
+
+  const draftTotals = draftItems.reduce(
+    (total, item) => ({
+      calories: total.calories + item.calories,
+      protein_g: total.protein_g + item.protein_g,
+      carbs_g: total.carbs_g + item.carbs_g,
+      fat_g: total.fat_g + item.fat_g,
+    }),
+    { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+  );
+
+  function confirmDraft() {
+    if (!draftName.trim() || draftItems.length === 0) return;
+    logFood.mutate(
+      { name: draftName.trim(), ...draftTotals },
+      {
+        onSuccess: () => {
+          toast.success("Refeição registrada", {
+            description: `${draftName.trim()} somado ao consumo de hoje.`,
+          });
+          setDraftName("");
+          setDraftItems([]);
+        },
+      },
+    );
+  }
+
+  function confirmManual() {
+    const calories = Number(manual.calories);
+    if (!manual.name.trim() || !Number.isFinite(calories) || calories < 0) return;
     logFood.mutate(
       {
-        name: picked.name,
-        calories: Math.round(picked.kcal100 * ratio),
-        protein_g: Math.round(picked.protein100 * ratio * 10) / 10,
-        carbs_g: Math.round(picked.carbs100 * ratio * 10) / 10,
-        fat_g: Math.round(picked.fat100 * ratio * 10) / 10,
+        name: manual.name.trim(),
+        calories,
+        protein_g: Number(manual.protein) || 0,
+        carbs_g: Number(manual.carbs) || 0,
+        fat_g: Number(manual.fat) || 0,
       },
       {
         onSuccess: () => {
-          toast.success("Registrado!", { description: `${picked.name} adicionado ao seu dia.` });
-          setPicked(null);
-          setQuery("");
-          setOffResults([]);
+          toast.success("Registrado!", { description: `${manual.name.trim()} adicionado.` });
+          setManual({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+          setManualOpen(false);
         },
-        onError: (e) =>
-          toast.error("Não foi possível registrar", {
-            description: e instanceof Error ? e.message : "Tente novamente.",
-          }),
       },
     );
   }
@@ -447,8 +524,102 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
             <Button type="button" size="sm" onClick={confirmLog} disabled={logFood.isPending}>
               <Plus className="mr-1 h-4 w-4" /> Registrar
             </Button>
+            <Button type="button" size="sm" variant="outline" onClick={addToDraft}>
+              <ListPlus className="mr-1 h-4 w-4" /> Somar à refeição
+            </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(null)}>
               Cancelar
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setManualOpen((v) => !v)}>
+            <PenLine className="mr-1.5 h-4 w-4" /> Não encontrou? Informar valores
+          </Button>
+        </div>
+
+        {manualOpen ? (
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <p className="text-sm font-medium">Informar uma porção consumida</p>
+            <Input
+              placeholder="Ex.: Monster 473 ml, McChicken..."
+              value={manual.name}
+              onChange={(e) => setManual((value) => ({ ...value, name: e.target.value }))}
+            />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(
+                [
+                  ["calories", "Calorias (kcal)"],
+                  ["protein", "Proteína (g)"],
+                  ["carbs", "Carboidrato (g)"],
+                  ["fat", "Gordura (g)"],
+                ] as const
+              ).map(([key, placeholder]) => (
+                <Input
+                  key={key}
+                  type="number"
+                  min={0}
+                  placeholder={placeholder}
+                  value={manual[key]}
+                  onChange={(e) => setManual((value) => ({ ...value, [key]: e.target.value }))}
+                />
+              ))}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirmManual}
+              disabled={!manual.name.trim() || manual.calories === "" || logFood.isPending}
+            >
+              <Plus className="mr-1 h-4 w-4" /> Registrar porção
+            </Button>
+          </div>
+        ) : null}
+
+        {draftItems.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+            <div className="flex items-center gap-2">
+              <ListPlus className="h-4 w-4 text-accent" />
+              <p className="text-sm font-medium">Montar refeição</p>
+            </div>
+            <Input
+              placeholder="Nome da refeição, ex.: Misto quente"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+            />
+            <div className="divide-y divide-border/60">
+              {draftItems.map((item, index) => (
+                <div key={`${item.name}-${index}`} className="flex items-center gap-2 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">
+                    {item.name} · {item.quantity} g/ml
+                  </span>
+                  <span className="text-muted-foreground">{Math.round(item.calories)} kcal</span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    aria-label={`Remover ${item.name}`}
+                    onClick={() => setDraftItems((items) => items.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Total: {Math.round(draftTotals.calories)} kcal · P{" "}
+              {formatNumber(draftTotals.protein_g)}· C {formatNumber(draftTotals.carbs_g)} · G{" "}
+              {formatNumber(draftTotals.fat_g)}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirmDraft}
+              disabled={!draftName.trim() || logFood.isPending}
+            >
+              Registrar refeição completa
             </Button>
           </div>
         ) : null}
