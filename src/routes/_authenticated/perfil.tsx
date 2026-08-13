@@ -34,11 +34,20 @@ const PLACE_LABELS: Record<string, string> = {
   outdoor: "Ao ar livre",
 };
 
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold leading-snug">{value}</dd>
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-right text-sm font-medium">{value}</dd>
+    <div className="border-t border-border/60 py-3 first:border-t-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm font-medium">{value}</dd>
     </div>
   );
 }
@@ -185,24 +194,30 @@ function Page_perfil() {
           </Button>
         }
       >
-        <dl className="divide-y">
-          <Row label="Objetivo" value={g ? (GOAL_LABELS[g.goal_type] ?? g.goal_type) : "—"} />
-          <Row
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Tile label="Objetivo" value={g ? (GOAL_LABELS[g.goal_type] ?? g.goal_type) : "—"} />
+          <Tile
             label="Peso atual / meta"
             value={`${formatNumber(profile.data?.current_weight_kg ?? null)} kg${g?.target_weight_kg ? ` → ${formatNumber(g.target_weight_kg)} kg` : ""}`}
           />
-          <Row
+          <Tile
             label="Treino"
-            value={`${pr?.training_days ?? "—"}x/semana · ${PLACE_LABELS[pr?.training_place ?? ""] ?? "—"} · ${pr?.training_duration_min ?? "—"} min`}
+            value={`${pr?.training_days ?? "—"}x/sem · ${PLACE_LABELS[pr?.training_place ?? ""] ?? "—"}`}
           />
-          <Row
+          <Tile
             label="Estilo de treino"
             value={SPLIT_LABELS[pr?.workout_split_preference ?? "auto"] ?? "Automático"}
           />
-          <Row
+          <Tile
             label="Refeições por dia"
             value={pr?.meals_per_day ? String(pr.meals_per_day) : "—"}
           />
+          <Tile
+            label="Duração do treino"
+            value={pr?.training_duration_min ? `${pr.training_duration_min} min` : "—"}
+          />
+        </dl>
+        <dl className="mt-1">
           <Row
             label="Restrições alimentares"
             value={
@@ -219,9 +234,10 @@ function Page_perfil() {
       </SectionCard>
 
       <SectionCard title="Conta" icon={<KeyRound className="h-4 w-4" />} accent="amber">
-        <dl className="divide-y">
-          <Row label="E-mail" value={email.data ?? "—"} />
-        </dl>
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+          <p className="text-xs text-muted-foreground">E-mail</p>
+          <p className="mt-1 break-all text-sm font-medium">{email.data ?? "—"}</p>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm">
             <Link to="/reset-password">Redefinir senha</Link>
