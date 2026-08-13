@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Dumbbell, Plus, ShieldAlert, UtensilsCrossed } from "lucide-react";
+import { Dumbbell, Plus, ShieldAlert, UtensilsCrossed, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,18 +24,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { EmptyState, LoadingBlock, PageHeader, SectionCard } from "@/components/common";
+import { EmptyState, LoadingBlock, PageHeader, SectionCard, StatCard } from "@/components/common";
 import {
   useAdminExercises,
   useAdminFoods,
+  useAdminUsers,
   useCreateExercise,
   useCreateFoodItem,
   useIsAdmin,
   useUpdateExercise,
   useUpdateFoodItem,
 } from "@/lib/db";
-import type { Exercise, FoodItem } from "@/lib/db";
+import type { Exercise, FoodItem, Profile } from "@/lib/db";
 import { MUSCLE_GROUP_LABELS } from "@/lib/plan-generator";
+import { formatNumber } from "@/lib/fitness";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   component: Page_admin,
@@ -57,13 +59,16 @@ const FOOD_CATEGORIES = [
 
 function Page_admin() {
   const isAdmin = useIsAdmin();
+  const foods = useAdminFoods();
+  const exercises = useAdminExercises();
+  const users = useAdminUsers();
 
   if (isAdmin.isLoading) return <LoadingBlock rows={5} />;
 
   if (!isAdmin.data) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Admin" subtitle="Gerenciar catálogo de exercícios e alimentos." />
+        <PageHeader title="Admin" subtitle="Painel de administração do NEXO." />
         <EmptyState
           icon={<ShieldAlert className="h-5 w-5" />}
           title="Acesso restrito"
@@ -75,20 +80,105 @@ function Page_admin() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Admin" subtitle="Gerenciar catálogo de exercícios e alimentos." />
-      <Tabs defaultValue="exercicios">
+      <PageHeader title="Admin" subtitle="Painel de administração do NEXO." />
+
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard
+          label="Alimentos"
+          value={String(foods.data?.length ?? 0)}
+          icon={<UtensilsCrossed className="h-4 w-4" />}
+          accent="green"
+        />
+        <StatCard
+          label="Exercícios"
+          value={String(exercises.data?.length ?? 0)}
+          icon={<Dumbbell className="h-4 w-4" />}
+          accent="blue"
+        />
+        <StatCard
+          label="Usuários"
+          value={String(users.data?.length ?? 0)}
+          icon={<Users className="h-4 w-4" />}
+          accent="amber"
+        />
+      </div>
+
+      <Tabs defaultValue="alimentos">
         <TabsList>
-          <TabsTrigger value="exercicios">Exercícios</TabsTrigger>
           <TabsTrigger value="alimentos">Alimentos</TabsTrigger>
+          <TabsTrigger value="exercicios">Exercícios</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
         </TabsList>
-        <TabsContent value="exercicios" className="space-y-4">
-          <ExercisesPanel />
-        </TabsContent>
         <TabsContent value="alimentos" className="space-y-4">
           <FoodsPanel />
         </TabsContent>
+        <TabsContent value="exercicios" className="space-y-4">
+          <ExercisesPanel />
+        </TabsContent>
+        <TabsContent value="usuarios" className="space-y-4">
+          <UsersPanel />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function UsersPanel() {
+  const users = useAdminUsers();
+  const [search, setSearch] = useState("");
+
+  if (users.isLoading) return <LoadingBlock rows={3} />;
+
+  const rows = (users.data ?? []).filter((u: Profile) =>
+    (u.full_name || "").toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <SectionCard
+      title="Pessoas cadastradas"
+      description="Somente leitura — dados vêm do perfil de cada usuário."
+      icon={<Users className="h-4 w-4" />}
+      accent="amber"
+      action={
+        <Input
+          placeholder="Buscar por nome..."
+          value={search}
+          onChange={(ev) => setSearch(ev.target.value)}
+          className="h-9 w-48"
+        />
+      }
+    >
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={<Users className="h-5 w-5" />}
+          title="Nenhum usuário encontrado"
+          description="Ajuste a busca ou aguarde novos cadastros."
+        />
+      ) : (
+        <div className="divide-y">
+          {rows.map((u: Profile) => (
+            <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{u.full_name || "Sem nome"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {u.biological_sex ?? "—"} ·{" "}
+                  {u.current_weight_kg ? `${formatNumber(Number(u.current_weight_kg))} kg` : "—"} ·
+                  cadastrado em{" "}
+                  {new Date(u.created_at).toLocaleDateString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                  })}
+                </p>
+              </div>
+              <Badge variant={u.onboarding_completed ? "default" : "outline"}>
+                {u.onboarding_completed ? "Onboarding completo" : "Onboarding pendente"}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 

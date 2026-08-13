@@ -446,6 +446,21 @@ export function useAdminFoods() {
   });
 }
 
+/** Lista de usuários cadastrados — só para o painel Admin (requer policy de leitura). */
+export function useAdminUsers() {
+  return useQuery({
+    queryKey: ["adminUsers"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
 export function useCreateFoodItem() {
   const qc = useQueryClient();
   return useMutation({
