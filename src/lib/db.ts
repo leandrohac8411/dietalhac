@@ -394,6 +394,86 @@ export function useIsAdmin() {
   });
 }
 
+/** Todos os exercícios (inclusive inativos) — só para o painel Admin. */
+export function useAdminExercises() {
+  return useQuery({
+    queryKey: ["adminExercises"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("exercises").select("*").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useCreateExercise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: TablesInsert<"exercises">) => {
+      const { error } = await supabase.from("exercises").insert(entry);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminExercises"] });
+      void qc.invalidateQueries({ queryKey: ["exercises"] });
+    },
+  });
+}
+
+export function useUpdateExercise() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: TablesUpdate<"exercises"> }) => {
+      const { error } = await supabase.from("exercises").update(patch).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminExercises"] });
+      void qc.invalidateQueries({ queryKey: ["exercises"] });
+    },
+  });
+}
+
+/** Todos os alimentos (inclusive inativos) — só para o painel Admin. */
+export function useAdminFoods() {
+  return useQuery({
+    queryKey: ["adminFoods"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("food_items").select("*").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useCreateFoodItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: TablesInsert<"food_items">) => {
+      const { error } = await supabase.from("food_items").insert(entry);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminFoods"] });
+      void qc.invalidateQueries({ queryKey: ["foods"] });
+    },
+  });
+}
+
+export function useUpdateFoodItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: TablesUpdate<"food_items"> }) => {
+      const { error } = await supabase.from("food_items").update(patch).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminFoods"] });
+      void qc.invalidateQueries({ queryKey: ["foods"] });
+    },
+  });
+}
+
 /** Registro rápido de água. */
 export function useLogWater() {
   const qc = useQueryClient();
