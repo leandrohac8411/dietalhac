@@ -1,6 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  BookmarkPlus,
+  Check,
   Minus,
   ListPlus,
   PenLine,
@@ -55,12 +57,16 @@ import {
   useGenerateDiet,
   useLogFreeFood,
   useMealPlan,
+  useDeleteSavedMeal,
+  useSavedMeals,
+  useSaveMeal,
   useSubstitutions,
   useSwapMealItem,
+  useToggleMealCompletion,
   useUpdateMealItem,
   useUpdateMealTime,
 } from "@/lib/db";
-import type { FoodItem, FoodLogRow, MealItemRow } from "@/lib/db";
+import type { FoodItem, FoodLogRow, MealItemRow, SavedMeal } from "@/lib/db";
 import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 import { searchOffProducts } from "@/lib/openfoodfacts";
 import type { OffProduct } from "@/lib/openfoodfacts";
@@ -92,6 +98,7 @@ function macroTotals(items: MealItemRow[]) {
 }
 
 function Dieta() {
+  const [actualMealId, setActualMealId] = useState<string | null>(null);
   const goal = useActiveGoal();
   const mealPlan = useMealPlan();
   const foods = useFoods();
@@ -156,8 +163,9 @@ function Dieta() {
   const meals = (data.meals ?? []) as unknown as MealWithItems[];
   const totals = macroTotals(meals.flatMap((m) => m.meal_items ?? []));
 
-  const extraLogs = (foodLogs.data ?? []).filter((l) => !l.meal_id);
-  const extraTotals = extraLogs.reduce(
+  const logsToday = foodLogs.data ?? [];
+  const extraLogs = logsToday.filter((l) => !l.meal_id);
+  const consumed = logsToday.reduce(
     (a, l) => ({
       kcal: a.kcal + Number(l.calories ?? 0),
       p: a.p + Number(l.protein_g ?? 0),
@@ -166,12 +174,13 @@ function Dieta() {
     }),
     { kcal: 0, p: 0, c: 0, f: 0 },
   );
-  const consumed = {
-    kcal: totals.kcal + extraTotals.kcal,
-    p: totals.p + extraTotals.p,
-    c: totals.c + extraTotals.c,
-    f: totals.f + extraTotals.f,
-  };
+  const completedMealIds = new Set(
+    logsToday.filter((log) => log.completed).map((log) => log.meal_id),
+  );
+  const logByMealId = new Map(
+    logsToday.filter((log) => log.meal_id).map((log) => [log.meal_id as string, log]),
+  );
+  const actualMeal = meals.find((meal) => meal.id === actualMealId) ?? null;
 
   const subsByFood = new Map<string, FoodItem[]>();
   for (const s of (subs.data ?? []) as unknown as SubRow[]) {
@@ -192,11 +201,7 @@ function Dieta() {
 
       <SectionCard
         title="Resumo do dia"
-        description={
-          extraTotals.kcal > 0
-            ? `Plano + ${formatKcal(extraTotals.kcal)} registrados fora do plano.`
-            : "Comparado com as metas da sua estratégia."
-        }
+        description={`${formatKcal(consumed.kcal)} consumidas · ${formatKcal(Math.max(0, Number(g.target_calories) - consumed.kcal))} restantes.`}
         icon={<Target className="h-4 w-4" />}
         accent="green"
       >
@@ -234,7 +239,15 @@ function Dieta() {
         </div>
       </SectionCard>
 
-      <FreeFoodLog foods={foods.data ?? []} entries={extraLogs} />
+      <div id="registro-alimentar">
+        <FreeFoodLog
+          foods={foods.data ?? []}
+          entries={extraLogs}
+          targetMeal={actualMeal}
+          targetLog={actualMeal ? (logByMealId.get(actualMeal.id) ?? null) : null}
+          onClearTarget={() => setActualMealId(null)}
+        />
+      </div>
 
       {mealGapWarnings(meals.map((m) => m.scheduled_time)).map((w, i) => (
         <AlertNote key={i} tone="warning">
@@ -243,7 +256,24 @@ function Dieta() {
       ))}
 
       {meals.map((meal) => (
-        <MealCard key={meal.id} meal={meal} foods={foods.data ?? []} subsByFood={subsByFood} />
+        <MealCard
+          key={meal.id}
+          meal={meal}
+          foods={foods.data ?? []}
+          subsByFood={subsByFood}
+          completed={completedMealIds.has(meal.id)}
+          consumedLog={logByMealId.get(meal.id) ?? null}
+          onDifferent={() => {
+            setActualMealId(meal.id);
+            window.setTimeout(
+              () =>
+                document
+                  .getElementById("registro-alimentar")
+                  ?.scrollIntoView({ behavior: "smooth" }),
+              0,
+            );
+          }}
+        />
       ))}
 
       <Disclaimer />
@@ -291,7 +321,7 @@ type PickedFood = {
 type DraftComponent = {
   name: string;
   quantity: number;
-  unit: "g" | "ml" | "g/ml";
+  unit: "g" | "ml" | "g/ml" | "porção";
   calories: number;
   protein_g: number;
   carbs_g: number;
@@ -324,9 +354,24 @@ function defaultBeverageVolume(name: string): number | null {
   return presets[0] ?? null;
 }
 
-function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRow[] }) {
+function FreeFoodLog({
+  foods,
+  entries,
+  targetMeal,
+  targetLog,
+  onClearTarget,
+}: {
+  foods: FoodItem[];
+  entries: FoodLogRow[];
+  targetMeal: MealWithItems | null;
+  targetLog: FoodLogRow | null;
+  onClearTarget: () => void;
+}) {
   const logFood = useLogFreeFood();
   const deleteLog = useDeleteFoodLog();
+  const savedMeals = useSavedMeals();
+  const saveMeal = useSaveMeal();
+  const deleteSavedMeal = useDeleteSavedMeal();
   const [query, setQuery] = useState("");
   const [offResults, setOffResults] = useState<OffProduct[]>([]);
   const [offLoading, setOffLoading] = useState(false);
@@ -336,6 +381,37 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
   const [draftItems, setDraftItems] = useState<DraftComponent[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+
+  useEffect(() => {
+    if (!targetMeal) return;
+    setDraftName(targetMeal.name);
+    const storedItems = Array.isArray(targetLog?.consumed_items)
+      ? (targetLog.consumed_items as unknown as DraftComponent[])
+      : [];
+    setDraftItems(
+      targetLog?.notes === "Refeição diferente do plano"
+        ? storedItems.length > 0
+          ? storedItems
+          : [
+              {
+                name: "Consumo já registrado",
+                quantity: 1,
+                unit: "porção",
+                calories: Number(targetLog.calories ?? 0),
+                protein_g: Number(targetLog.protein_g ?? 0),
+                carbs_g: Number(targetLog.carbs_g ?? 0),
+                fat_g: Number(targetLog.fat_g ?? 0),
+              },
+            ]
+        : [],
+    );
+  }, [targetMeal, targetLog]);
+
+  function cancelTarget() {
+    setDraftName("");
+    setDraftItems([]);
+    onClearTarget();
+  }
 
   const normalizeSearch = (value: string) =>
     value
@@ -459,7 +535,13 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
   function confirmDraft() {
     if (!draftName.trim() || draftItems.length === 0) return;
     logFood.mutate(
-      { name: draftName.trim(), ...draftTotals },
+      {
+        name: targetMeal ? `${targetMeal.name} — consumido` : draftName.trim(),
+        meal_id: targetMeal?.id ?? null,
+        notes: targetMeal ? "Refeição diferente do plano" : "Refeição montada manualmente",
+        items: draftItems,
+        ...draftTotals,
+      },
       {
         onSuccess: () => {
           toast.success("Refeição registrada", {
@@ -467,7 +549,47 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
           });
           setDraftName("");
           setDraftItems([]);
+          onClearTarget();
         },
+        onError: (error) =>
+          toast.error("Não foi possível registrar a refeição", {
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  function saveDraft() {
+    if (!draftName.trim() || draftItems.length === 0) return;
+    saveMeal.mutate(
+      { name: draftName.trim(), items: draftItems, ...draftTotals },
+      {
+        onSuccess: () =>
+          toast.success("Refeição salva", {
+            description: `${draftName.trim()} ficará disponível para os próximos dias.`,
+          }),
+        onError: (error) =>
+          toast.error("Não foi possível salvar a refeição", {
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  function registerSavedMeal(meal: SavedMeal) {
+    logFood.mutate(
+      {
+        name: meal.name,
+        calories: Number(meal.calories),
+        protein_g: Number(meal.protein_g),
+        carbs_g: Number(meal.carbs_g),
+        fat_g: Number(meal.fat_g),
+      },
+      {
+        onSuccess: () =>
+          toast.success("Refeição registrada", {
+            description: `${meal.name} foi somada ao consumo de hoje.`,
+          }),
       },
     );
   }
@@ -493,6 +615,25 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
     );
   }
 
+  function addManualToDraft() {
+    const calories = Number(manual.calories);
+    if (!manual.name.trim() || !Number.isFinite(calories) || calories < 0) return;
+    setDraftItems((current) => [
+      ...current,
+      {
+        name: manual.name.trim(),
+        quantity: 1,
+        unit: "porção",
+        calories,
+        protein_g: Number(manual.protein) || 0,
+        carbs_g: Number(manual.carbs) || 0,
+        fat_g: Number(manual.fat) || 0,
+      },
+    ]);
+    setManual({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+    setManualOpen(false);
+  }
+
   const pickedVolumePresets = picked ? beverageVolumePresets(picked.name) : [];
 
   return (
@@ -503,6 +644,81 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
       accent="amber"
     >
       <div className="space-y-3">
+        {targetMeal ? (
+          <AlertNote tone="info">
+            Registrando o que você realmente comeu no lugar de <strong>{targetMeal.name}</strong>.
+            Adicione todos os alimentos e quantidades abaixo; o plano não será somado junto.
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="ml-2 h-7"
+              onClick={cancelTarget}
+            >
+              Cancelar
+            </Button>
+          </AlertNote>
+        ) : null}
+        {savedMeals.data && savedMeals.data.length > 0 ? (
+          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+            <div className="flex items-center gap-2">
+              <BookmarkPlus className="h-4 w-4 text-accent" />
+              <p className="text-sm font-medium">Minhas refeições salvas</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {savedMeals.data.map((meal) => (
+                <div key={meal.id} className="flex items-center gap-2 rounded-md bg-muted/50 p-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{meal.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {Math.round(Number(meal.calories))} kcal · P{" "}
+                      {formatNumber(Number(meal.protein_g))} · C{" "}
+                      {formatNumber(Number(meal.carbs_g))} · G {formatNumber(Number(meal.fat_g))}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => registerSavedMeal(meal)}
+                    disabled={logFood.isPending}
+                  >
+                    Registrar
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label={`Excluir ${meal.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir refeição salva?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {meal.name} deixará de aparecer nos atalhos. Os registros anteriores do
+                          diário serão mantidos.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteSavedMeal.mutate(meal.id)}>
+                          Excluir
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex gap-2">
           <Input
             placeholder="Ex.: bolo de chocolate, presunto, pizza..."
@@ -577,7 +793,8 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
               <Plus className="mr-1 h-4 w-4" /> Registrar
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={addToDraft}>
-              <ListPlus className="mr-1 h-4 w-4" /> Somar à refeição
+              <ListPlus className="mr-1 h-4 w-4" />
+              {targetMeal ? `Somar ao ${targetMeal.name}` : "Somar à refeição"}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(null)}>
               Cancelar
@@ -643,6 +860,16 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
             >
               <Plus className="mr-1 h-4 w-4" /> Registrar porção
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={addManualToDraft}
+              disabled={!manual.name.trim() || manual.calories === ""}
+            >
+              <ListPlus className="mr-1 h-4 w-4" />
+              {targetMeal ? `Somar ao ${targetMeal.name}` : "Somar à refeição"}
+            </Button>
           </div>
         ) : null}
 
@@ -656,6 +883,7 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
               placeholder="Nome da refeição, ex.: Misto quente"
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
+              disabled={Boolean(targetMeal)}
             />
             <div className="divide-y divide-border/60">
               {draftItems.map((item, index) => (
@@ -682,14 +910,25 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
               {formatNumber(draftTotals.protein_g)}· C {formatNumber(draftTotals.carbs_g)} · G{" "}
               {formatNumber(draftTotals.fat_g)}
             </p>
-            <Button
-              type="button"
-              size="sm"
-              onClick={confirmDraft}
-              disabled={!draftName.trim() || logFood.isPending}
-            >
-              Registrar refeição completa
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={confirmDraft}
+                disabled={!draftName.trim() || logFood.isPending}
+              >
+                {targetMeal ? `Registrar como ${targetMeal.name}` : "Registrar refeição completa"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={saveDraft}
+                disabled={!draftName.trim() || saveMeal.isPending}
+              >
+                <BookmarkPlus className="mr-1.5 h-4 w-4" /> Salvar para repetir
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -727,31 +966,138 @@ function MealCard({
   meal,
   foods,
   subsByFood,
+  completed,
+  consumedLog,
+  onDifferent,
 }: {
   meal: MealWithItems;
   foods: FoodItem[];
   subsByFood: Map<string, FoodItem[]>;
+  completed: boolean;
+  consumedLog: FoodLogRow | null;
+  onDifferent: () => void;
 }) {
   const updateTime = useUpdateMealTime();
+  const toggleCompletion = useToggleMealCompletion();
   const items = meal.meal_items ?? [];
   const mt = macroTotals(items);
+  const consumedItems = Array.isArray(consumedLog?.consumed_items)
+    ? (consumedLog.consumed_items as unknown as DraftComponent[])
+    : [];
+
+  function setCompleted() {
+    toggleCompletion.mutate(
+      { meal, completed: !completed },
+      {
+        onSuccess: () =>
+          toast.success(completed ? "Registro desfeito" : `${meal.name} registrada`, {
+            description: completed
+              ? "A refeição saiu do consumo de hoje."
+              : `${formatKcal(mt.kcal)} somadas ao consumo de hoje.`,
+          }),
+        onError: () => toast.error("Não foi possível atualizar a refeição."),
+      },
+    );
+  }
+
   return (
     <SectionCard
       title={meal.name}
       description={`${formatKcal(mt.kcal)} · P ${Math.round(mt.p)}g · C ${Math.round(mt.c)}g · G ${Math.round(mt.f)}g`}
       action={
-        <div className="flex items-center gap-2">
-          <Input
-            type="time"
-            aria-label={`Horário de ${meal.name}`}
-            value={meal.scheduled_time ?? ""}
-            onChange={(e) => updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value })}
-            className="h-9 w-[7.5rem]"
-          />
-          <AddFoodPopover mealId={meal.id} foods={foods} />
+        <div className="w-full rounded-xl border border-border/50 bg-muted/30 p-2 sm:min-w-[310px] sm:bg-muted/20">
+          <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Registro de hoje
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={completed ? "secondary" : "outline"}
+              className={cn(
+                "h-9 min-w-0 px-2 text-xs",
+                completed && "border-accent/30 bg-accent/10 text-foreground",
+              )}
+              onClick={setCompleted}
+              disabled={toggleCompletion.isPending}
+            >
+              <Check className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{completed ? "Consumida" : "Como planejado"}</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 px-2 text-xs"
+              onClick={onDifferent}
+            >
+              <Replace className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Comi diferente</span>
+            </Button>
+          </div>
+          <div className="mt-2 flex items-center gap-2 border-t border-border/50 pt-2">
+            <div className="min-w-0 flex-1">
+              <Input
+                type="time"
+                aria-label={`Horário de ${meal.name}`}
+                value={meal.scheduled_time ?? ""}
+                onChange={(e) =>
+                  updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value })
+                }
+                className="h-9 w-full text-sm"
+              />
+            </div>
+            <AddFoodPopover mealId={meal.id} foods={foods} />
+          </div>
         </div>
       }
     >
+      {consumedLog ? (
+        <div className="mb-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm">
+          <p className="font-medium">
+            Consumido: {Math.round(Number(consumedLog.calories))} kcal · P{" "}
+            {formatNumber(consumedLog.protein_g)} · C {formatNumber(consumedLog.carbs_g)} · G{" "}
+            {formatNumber(consumedLog.fat_g)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Diferença para o planejado:{" "}
+            {Math.round(Number(consumedLog.calories) - mt.kcal) >= 0 ? "+" : ""}
+            {Math.round(Number(consumedLog.calories) - mt.kcal)} kcal
+            {consumedLog.notes === "Refeição diferente do plano" ? " · refeição substituída" : ""}
+          </p>
+          <div className="mt-3 border-t border-accent/20 pt-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              O que você consumiu
+            </p>
+            {consumedItems.length > 0 ? (
+              <div className="mt-1.5 space-y-1">
+                {consumedItems.map((item, index) => (
+                  <div
+                    key={`${item.name}-${index}`}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <span className="min-w-0 truncate">
+                      {item.name} · {item.quantity} {item.unit}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {Math.round(item.calories)} kcal
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Este registro é anterior ao histórico detalhado. Os totais foram preservados.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+      {consumedLog ? (
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          O que estava planejado
+        </p>
+      ) : null}
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum alimento nesta refeição.</p>
       ) : (

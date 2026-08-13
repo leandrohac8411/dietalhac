@@ -129,6 +129,7 @@ export type Database = {
           calories: number | null;
           carbs_g: number | null;
           completed: boolean;
+          consumed_items: Json;
           created_at: string;
           fat_g: number | null;
           id: string;
@@ -143,6 +144,7 @@ export type Database = {
           calories?: number | null;
           carbs_g?: number | null;
           completed?: boolean;
+          consumed_items?: Json;
           created_at?: string;
           fat_g?: number | null;
           id?: string;
@@ -157,6 +159,7 @@ export type Database = {
           calories?: number | null;
           carbs_g?: number | null;
           completed?: boolean;
+          consumed_items?: Json;
           created_at?: string;
           fat_g?: number | null;
           id?: string;
@@ -176,6 +179,45 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      saved_meals: {
+        Row: {
+          calories: number;
+          carbs_g: number;
+          created_at: string;
+          fat_g: number;
+          id: string;
+          items: Json;
+          name: string;
+          protein_g: number;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          calories?: number;
+          carbs_g?: number;
+          created_at?: string;
+          fat_g?: number;
+          id?: string;
+          items?: Json;
+          name: string;
+          protein_g?: number;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          calories?: number;
+          carbs_g?: number;
+          created_at?: string;
+          fat_g?: number;
+          id?: string;
+          items?: Json;
+          name?: string;
+          protein_g?: number;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       exercises: {
         Row: {

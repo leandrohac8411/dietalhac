@@ -38,6 +38,16 @@ export type Checkin = Tables<"weekly_checkins">;
 export type Assessment = Tables<"body_assessments">;
 export type Measurement = Tables<"body_measurements">;
 export type FoodLogRow = Tables<"daily_food_logs">;
+export type SavedMeal = Tables<"saved_meals">;
+export type SavedMealComponent = {
+  name: string;
+  quantity: number;
+  unit: "g" | "ml" | "g/ml" | "porção";
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
 
 async function requireUserId() {
   // Estes hooks rodam no cliente e usam o ID somente como filtro. Chamar
@@ -275,20 +285,43 @@ export function useLogFreeFood() {
       protein_g: number;
       carbs_g: number;
       fat_g: number;
+      meal_id?: string | null;
+      notes?: string;
+      items?: SavedMealComponent[];
     }) => {
       const uid = await requireUserId();
-      const { error } = await supabase.from("daily_food_logs").insert({
+      const payload = {
         user_id: uid,
         log_date: today(),
-        meal_id: null,
+        meal_id: entry.meal_id ?? null,
         meal_name: entry.name,
         completed: true,
         calories: entry.calories,
         protein_g: entry.protein_g,
         carbs_g: entry.carbs_g,
         fat_g: entry.fat_g,
-        notes: "Registrado manualmente",
-      });
+        notes: entry.notes ?? "Registrado manualmente",
+        consumed_items: entry.items ?? [],
+      };
+
+      if (entry.meal_id) {
+        const { data: existing, error: findError } = await supabase
+          .from("daily_food_logs")
+          .select("id")
+          .eq("user_id", uid)
+          .eq("log_date", today())
+          .eq("meal_id", entry.meal_id)
+          .limit(1)
+          .maybeSingle();
+        if (findError) throw findError;
+        const { error } = existing
+          ? await supabase.from("daily_food_logs").update(payload).eq("id", existing.id)
+          : await supabase.from("daily_food_logs").insert(payload);
+        if (error) throw error;
+        return;
+      }
+
+      const { error } = await supabase.from("daily_food_logs").insert(payload);
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["foodLogsToday"] }),
@@ -303,6 +336,64 @@ export function useDeleteFoodLog() {
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["foodLogsToday"] }),
+  });
+}
+
+export function useSavedMeals() {
+  return useQuery({
+    queryKey: ["savedMeals"],
+    queryFn: async (): Promise<SavedMeal[]> => {
+      const uid = await requireUserId();
+      const { data, error } = await supabase
+        .from("saved_meals")
+        .select("*")
+        .eq("user_id", uid)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useSaveMeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entry: {
+      name: string;
+      items: SavedMealComponent[];
+      calories: number;
+      protein_g: number;
+      carbs_g: number;
+      fat_g: number;
+    }) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("saved_meals").upsert(
+        {
+          user_id: uid,
+          name: entry.name.trim(),
+          items: entry.items,
+          calories: entry.calories,
+          protein_g: entry.protein_g,
+          carbs_g: entry.carbs_g,
+          fat_g: entry.fat_g,
+        },
+        { onConflict: "user_id,name" },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["savedMeals"] }),
+  });
+}
+
+export function useDeleteSavedMeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("saved_meals").delete().eq("id", id).eq("user_id", uid);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["savedMeals"] }),
   });
 }
 
@@ -588,7 +679,21 @@ export function useToggleMealCompletion() {
         .maybeSingle();
       if (findError) throw findError;
 
-      const payload = { meal_name: meal.name, completed: true, ...totals };
+      const payload = {
+        meal_name: meal.name,
+        completed: true,
+        consumed_items: meal.meal_items.map((item) => ({
+          name: item.food_name,
+          quantity: Number(item.quantity),
+          unit: item.unit as SavedMealComponent["unit"],
+          calories: Number(item.calories),
+          protein_g: Number(item.protein_g),
+          carbs_g: Number(item.carbs_g),
+          fat_g: Number(item.fat_g),
+        })),
+        notes: "Consumido como planejado",
+        ...totals,
+      };
       const query = existing
         ? supabase.from("daily_food_logs").update(payload).eq("id", existing.id)
         : supabase.from("daily_food_logs").insert({
