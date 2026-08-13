@@ -542,6 +542,7 @@ VALUES
   ('Camarão cozido','peixe',100,'g',99,24,0.2,0.3,0,120,7.80,ARRAY['animal','peixe']),
   -- Ovos
   ('Ovo inteiro','ovo',100,'g',155,13,1.1,11,0,124,1.20,ARRAY['animal','ovo']),
+  ('Ovos mexidos sem óleo','ovo',100,'g',155,13,1.1,11,0,124,1.20,ARRAY['animal','ovo']),
   ('Clara de ovo','ovo',100,'g',52,11,0.7,0.2,0,166,1.00,ARRAY['animal','ovo']),
   -- Leguminosas (fonte vegetal de proteína)
   ('Feijão carioca cozido','leguminosa',100,'g',76,4.8,13.6,0.5,8.5,2,0.80,ARRAY[]::text[]),
@@ -606,8 +607,8 @@ VALUES
   ,('Limonada sem açúcar','outros',100,'ml',7,0.1,2.4,0,0.1,1,0.50,ARRAY['zero_acucar']::text[])
   ,('Energético tradicional','outros',100,'ml',45,0,11,0,0,40,1.20,ARRAY['cafeina']::text[])
   ,('Energético zero açúcar','outros',100,'ml',2,0,0.5,0,0,45,1.30,ARRAY['cafeina','zero_acucar']::text[])
-  ,('Monster Energy tradicional','outros',100,'ml',45,0,11,0,0,40,1.50,ARRAY['cafeina']::text[])
-  ,('Monster Ultra zero açúcar','outros',100,'ml',2,0,0.5,0,0,45,1.60,ARRAY['cafeina','zero_acucar']::text[])
+  ,('Monster Energy tradicional','outros',473,'ml',213,0,52,0,0,189,8.00,ARRAY['cafeina']::text[])
+  ,('Monster Ultra zero açúcar','outros',473,'ml',9,0,2.4,0,0,213,8.00,ARRAY['cafeina','zero_acucar']::text[])
   ,('Red Bull Energy Drink','outros',100,'ml',46,0,11,0,0,40,1.80,ARRAY['cafeina']::text[])
   ,('Red Bull Sugarfree','outros',100,'ml',3,0,0.7,0,0,40,1.90,ARRAY['cafeina','zero_acucar']::text[])
   ,('Baly Energy Drink tradicional','outros',100,'ml',45,0,11,0,0,40,1.00,ARRAY['cafeina']::text[])

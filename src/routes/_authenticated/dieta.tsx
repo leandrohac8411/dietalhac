@@ -298,6 +298,32 @@ type DraftComponent = {
   fat_g: number;
 };
 
+function beverageVolumePresets(name: string): number[] {
+  const normalized = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (normalized.includes("red bull")) return [250, 355, 473];
+  if (normalized.includes("monster")) return [473];
+  if (normalized.includes("baly")) return [473];
+  if (
+    normalized.includes("refrigerante") ||
+    normalized.includes("coca-cola") ||
+    normalized.includes("guarana") ||
+    normalized.includes("tonica")
+  ) {
+    return [220, 269, 310, 350];
+  }
+  return [];
+}
+
+function defaultBeverageVolume(name: string): number | null {
+  const presets = beverageVolumePresets(name);
+  if (presets.includes(350)) return 350;
+  return presets[0] ?? null;
+}
+
 function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRow[] }) {
   const logFood = useLogFreeFood();
   const deleteLog = useDeleteFoodLog();
@@ -359,10 +385,11 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
       source: "catálogo",
       unit: f.unit === "ml" ? "ml" : "g",
     });
-    setGrams(String(f.portion || 100));
+    setGrams(String(defaultBeverageVolume(f.name) ?? f.portion ?? 100));
   }
 
   function pickOff(p: OffProduct) {
+    const presets = beverageVolumePresets(p.name);
     setPicked({
       name: p.name,
       kcal100: p.kcal100,
@@ -370,9 +397,9 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
       carbs100: p.carbs100,
       fat100: p.fat100,
       source: "Open Food Facts",
-      unit: "g/ml",
+      unit: presets.length > 0 ? "ml" : "g/ml",
     });
-    setGrams("100");
+    setGrams(String(defaultBeverageVolume(p.name) ?? 100));
   }
 
   function calculatedPicked(): DraftComponent | null {
@@ -466,6 +493,8 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
     );
   }
 
+  const pickedVolumePresets = picked ? beverageVolumePresets(picked.name) : [];
+
   return (
     <SectionCard
       title="Registrar alimento"
@@ -531,7 +560,8 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{picked.name}</p>
               <p className="text-xs text-muted-foreground">
-                {Math.round(picked.kcal100)} kcal/100g · {picked.source}
+                {Math.round(picked.kcal100)} kcal/100{picked.unit === "ml" ? "ml" : "g"} ·{" "}
+                {picked.source}
               </p>
             </div>
             <Input
@@ -552,6 +582,23 @@ function FreeFoodLog({ foods, entries }: { foods: FoodItem[]; entries: FoodLogRo
             <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(null)}>
               Cancelar
             </Button>
+            {pickedVolumePresets.length > 0 ? (
+              <div className="flex w-full flex-wrap items-center gap-1.5 border-t border-border/50 pt-2">
+                <span className="mr-1 text-xs text-muted-foreground">Tamanho:</span>
+                {pickedVolumePresets.map((volume) => (
+                  <Button
+                    key={volume}
+                    type="button"
+                    size="sm"
+                    variant={grams === String(volume) ? "default" : "outline"}
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => setGrams(String(volume))}
+                  >
+                    {volume} ml
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
