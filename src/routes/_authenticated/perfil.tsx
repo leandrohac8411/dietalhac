@@ -16,6 +16,7 @@ import {
   useScreening,
   useUpdateProfile,
 } from "@/lib/db";
+import { getErrorMessage } from "@/lib/errors";
 import { GOAL_LABELS, formatNumber } from "@/lib/fitness";
 import { SPLIT_LABELS } from "@/lib/plan-generator";
 
@@ -121,7 +122,7 @@ function Page_perfil() {
         onSuccess: () => toast.success("Perfil atualizado!"),
         onError: (e) =>
           toast.error("Não foi possível salvar", {
-            description: e instanceof Error ? e.message : "Tente novamente.",
+            description: getErrorMessage(e),
           }),
       },
     );

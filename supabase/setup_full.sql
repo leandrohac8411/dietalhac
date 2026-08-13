@@ -45,7 +45,8 @@ CREATE POLICY "read own roles" ON public.user_roles FOR SELECT TO authenticated 
 
 CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role public.app_role)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
+  SELECT _user_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
 $$;
 
 -- signup trigger
@@ -495,7 +496,8 @@ CREATE POLICY "own notifications" ON public.notifications FOR ALL TO authenticat
 
 -- >>> 2) REVOKES
 
-REVOKE ALL ON FUNCTION public.has_role(uuid, public.app_role) FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON FUNCTION public.has_role(uuid, public.app_role) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_role(uuid, public.app_role) TO authenticated;
 REVOKE ALL ON FUNCTION public.handle_new_user() FROM anon, authenticated, PUBLIC;
 REVOKE ALL ON FUNCTION public.set_updated_at() FROM anon, authenticated, PUBLIC;
 

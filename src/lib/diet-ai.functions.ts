@@ -38,9 +38,15 @@ const outputSchema = z.object({
 export const generateNaturalDiet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: unknown) => inputSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const apiKey = process.env["GROQ_API_KEY"];
     if (!apiKey) return null;
+
+    // Falha fechada: se o banco não puder confirmar a cota, não consome a API externa.
+    const { data: quotaAvailable, error: quotaError } = await context.supabase.rpc(
+      "consume_diet_generation_quota",
+    );
+    if (quotaError || !quotaAvailable) return null;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);

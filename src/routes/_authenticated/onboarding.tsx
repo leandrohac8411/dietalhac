@@ -25,6 +25,7 @@ import {
   useProfile,
   useScreening,
 } from "@/lib/db";
+import { getErrorMessage } from "@/lib/errors";
 import { ACTIVITY_OPTIONS } from "@/lib/activities";
 import {
   GOAL_LABELS,
@@ -674,7 +675,7 @@ function Onboarding() {
         },
         onError: (e) =>
           toast.error("Não foi possível salvar", {
-            description: e instanceof Error ? e.message : "Tente novamente.",
+            description: getErrorMessage(e),
           }),
       },
     );

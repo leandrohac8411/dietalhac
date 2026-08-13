@@ -1216,6 +1216,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      consume_diet_generation_quota: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
+      };
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"];

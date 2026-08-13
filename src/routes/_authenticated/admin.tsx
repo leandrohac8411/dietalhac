@@ -35,7 +35,7 @@ import {
   useUpdateExercise,
   useUpdateFoodItem,
 } from "@/lib/db";
-import type { Exercise, FoodItem, Profile } from "@/lib/db";
+import type { AdminProfile, Exercise, FoodItem } from "@/lib/db";
 import { MUSCLE_GROUP_LABELS } from "@/lib/plan-generator";
 import { formatNumber } from "@/lib/fitness";
 
@@ -59,9 +59,10 @@ const FOOD_CATEGORIES = [
 
 function Page_admin() {
   const isAdmin = useIsAdmin();
-  const foods = useAdminFoods();
-  const exercises = useAdminExercises();
-  const users = useAdminUsers();
+  const canLoadAdminData = isAdmin.data === true;
+  const foods = useAdminFoods(canLoadAdminData);
+  const exercises = useAdminExercises(canLoadAdminData);
+  const users = useAdminUsers(canLoadAdminData);
 
   if (isAdmin.isLoading) return <LoadingBlock rows={5} />;
 
@@ -129,7 +130,7 @@ function UsersPanel() {
 
   if (users.isLoading) return <LoadingBlock rows={3} />;
 
-  const rows = (users.data ?? []).filter((u: Profile) =>
+  const rows = (users.data ?? []).filter((u: AdminProfile) =>
     (u.full_name || "").toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -156,7 +157,7 @@ function UsersPanel() {
         />
       ) : (
         <div className="divide-y">
-          {rows.map((u: Profile) => (
+          {rows.map((u: AdminProfile) => (
             <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{u.full_name || "Sem nome"}</p>

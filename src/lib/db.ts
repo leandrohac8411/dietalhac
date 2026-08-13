@@ -10,8 +10,18 @@ import {
 } from "@/lib/plan-generator";
 import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
 import { generateNaturalDiet } from "@/lib/diet-ai.functions";
+import { databaseError } from "@/lib/errors";
 
 export type Profile = Tables<"profiles">;
+export type AdminProfile = Pick<
+  Profile,
+  | "id"
+  | "full_name"
+  | "biological_sex"
+  | "current_weight_kg"
+  | "created_at"
+  | "onboarding_completed"
+>;
 export type UserGoal = Tables<"user_goals">;
 export type UserPreferences = Tables<"user_preferences">;
 export type FoodItem = Tables<"food_items">;
@@ -28,9 +38,13 @@ export type Measurement = Tables<"body_measurements">;
 export type FoodLogRow = Tables<"daily_food_logs">;
 
 async function requireUserId() {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) throw new Error("Sessão expirada");
-  return data.user.id;
+  // Estes hooks rodam no cliente e usam o ID somente como filtro. Chamar
+  // getUser() aqui faria uma validação remota para cada consulta da tela
+  // (dashboard, menu, água, peso, dieta etc.). A autorização real continua
+  // sendo feita pelo JWT e pelas policies RLS no Supabase.
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.user) throw new Error("Sessão expirada");
+  return data.session.user.id;
 }
 
 export const today = () => {
@@ -395,9 +409,10 @@ export function useIsAdmin() {
 }
 
 /** Todos os exercícios (inclusive inativos) — só para o painel Admin. */
-export function useAdminExercises() {
+export function useAdminExercises(enabled = true) {
   return useQuery({
     queryKey: ["adminExercises"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase.from("exercises").select("*").order("name");
       if (error) throw error;
@@ -435,9 +450,10 @@ export function useUpdateExercise() {
 }
 
 /** Todos os alimentos (inclusive inativos) — só para o painel Admin. */
-export function useAdminFoods() {
+export function useAdminFoods(enabled = true) {
   return useQuery({
     queryKey: ["adminFoods"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase.from("food_items").select("*").order("name");
       if (error) throw error;
@@ -447,16 +463,17 @@ export function useAdminFoods() {
 }
 
 /** Lista de usuários cadastrados — só para o painel Admin (requer policy de leitura). */
-export function useAdminUsers() {
+export function useAdminUsers(enabled = true) {
   return useQuery({
     queryKey: ["adminUsers"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id,full_name,biological_sex,current_weight_kg,created_at,onboarding_completed")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as AdminProfile[];
     },
   });
 }
@@ -614,8 +631,18 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: async (patch: TablesUpdate<"profiles">) => {
       const uid = await requireUserId();
-      const { error } = await supabase.from("profiles").update(patch).eq("id", uid);
-      if (error) throw error;
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(patch)
+        .eq("id", uid)
+        .select("id")
+        .maybeSingle();
+      if (error) throw databaseError("Dados pessoais", error);
+      if (!data) {
+        throw new Error(
+          "Dados pessoais: seu perfil não foi encontrado ou não pode ser alterado por esta sessão.",
+        );
+      }
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["profile"] }),
   });
@@ -726,35 +753,35 @@ export function useCompleteOnboarding() {
         .update({ is_active: false })
         .eq("user_id", uid)
         .eq("is_active", true);
-      if (deErr) throw deErr;
+      if (deErr) throw databaseError("Objetivo anterior", deErr);
 
       const { error: gErr } = await supabase
         .from("user_goals")
         .insert({ ...payload.goal, user_id: uid, is_active: true });
-      if (gErr) throw gErr;
+      if (gErr) throw databaseError("Novo objetivo", gErr);
 
       // Preferências e triagem: um registro por usuário (upsert por user_id).
       const { error: prErr } = await supabase
         .from("user_preferences")
         .upsert({ ...payload.preferences, user_id: uid }, { onConflict: "user_id" });
-      if (prErr) throw prErr;
+      if (prErr) throw databaseError("Preferências", prErr);
 
       const { error: scErr } = await supabase
         .from("health_screening")
         .upsert({ ...payload.screening, user_id: uid }, { onConflict: "user_id" });
-      if (scErr) throw scErr;
+      if (scErr) throw databaseError("Triagem de saúde", scErr);
 
       // Atividades extras: substitui a lista inteira (remove e reinsere).
       const { error: delActErr } = await supabase
         .from("user_activities")
         .delete()
         .eq("user_id", uid);
-      if (delActErr) throw delActErr;
+      if (delActErr) throw databaseError("Atividades físicas", delActErr);
       if (payload.activities.length > 0) {
         const { error: actErr } = await supabase
           .from("user_activities")
           .insert(payload.activities.map((a) => ({ ...a, user_id: uid })));
-        if (actErr) throw actErr;
+        if (actErr) throw databaseError("Atividades físicas", actErr);
       }
 
       // Perfil: dados básicos + marca o onboarding como concluído.
@@ -762,7 +789,7 @@ export function useCompleteOnboarding() {
         .from("profiles")
         .update({ ...payload.profile, onboarding_completed: true })
         .eq("id", uid);
-      if (pErr) throw pErr;
+      if (pErr) throw databaseError("Conclusão do perfil", pErr);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["profile"] });
