@@ -4,7 +4,6 @@ import {
   Activity,
   ArrowRight,
   Check,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Dumbbell,
@@ -16,6 +15,12 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { useSession } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/")({
@@ -68,6 +73,39 @@ const PLAN_POINTS = [
   "Macros e calorias explicados com clareza",
 ];
 
+const FAQ = [
+  {
+    question: "Como o NEXO personaliza meu plano?",
+    answer:
+      "O sistema considera objetivo, rotina, horários, frequência de treino, preferências, restrições e dados corporais para calcular uma estratégia individual.",
+  },
+  {
+    question: "A dieta é igual para todas as pessoas?",
+    answer:
+      "Não. Metas, porções, horários e escolhas mudam conforme o perfil. O plano também diferencia objetivos como redução de gordura, manutenção e ganho de massa.",
+  },
+  {
+    question: "Posso trocar um alimento ou registrar algo fora do plano?",
+    answer:
+      "Sim. Você pode usar substituições equivalentes e registrar o que realmente consumiu, inclusive refeições fora da rotina, para acompanhar os totais reais do dia.",
+  },
+  {
+    question: "O treino considera meu nível e minha disponibilidade?",
+    answer:
+      "Sim. A montagem considera experiência, local de treino, dias disponíveis, duração e objetivo. Os exercícios incluem orientação visual de execução.",
+  },
+  {
+    question: "Consigo alterar minha rotina depois?",
+    answer:
+      "Sim. Ao atualizar seus dados e responder novamente ao questionário, você pode regenerar dieta, treino e estratégia para a nova rotina.",
+  },
+  {
+    question: "O NEXO substitui nutricionista ou profissional de educação física?",
+    answer:
+      "Não. O NEXO organiza estimativas e orientações gerais. Condições clínicas, sintomas, lesões ou necessidades específicas exigem acompanhamento profissional.",
+  },
+];
+
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2.5 text-white" aria-label="NEXO, início">
@@ -78,11 +116,7 @@ function Brand() {
 }
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#9bea36]">
-      {children}
-    </p>
-  );
+  return <p className="mb-4 text-sm font-semibold text-[#9bea36]">{children}</p>;
 }
 
 function Home() {
@@ -120,7 +154,7 @@ function Home() {
   return (
     <div className="marketing-page grain min-h-[100dvh] bg-[#111411] text-[#f4f7f1]">
       <header className="fixed inset-x-0 top-0 z-40 px-4 pt-4 sm:px-6">
-        <nav className="mx-auto flex h-16 max-w-[1380px] items-center justify-between rounded-2xl border border-white/10 bg-[#111411]/80 px-4 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl sm:px-6">
+        <nav className="marketing-nav mx-auto flex h-16 max-w-[1380px] items-center justify-between rounded-2xl border border-white/10 bg-[#111411]/78 px-4 backdrop-blur-xl sm:px-6">
           <Brand />
           <div className="hidden items-center gap-8 text-sm text-white/65 md:flex">
             <a href="#metodo" className="transition-colors hover:text-white">
@@ -132,10 +166,13 @@ function Home() {
             <a href="#seguranca" className="transition-colors hover:text-white">
               Segurança
             </a>
+            <a href="#duvidas" className="transition-colors hover:text-white">
+              Dúvidas
+            </a>
           </div>
           <Button
             asChild
-            className="h-10 rounded-full bg-[#9bea36] px-5 font-semibold text-[#111411] hover:bg-[#acf153]"
+            className="marketing-primary-action h-10 rounded-full bg-[#9bea36] px-5 font-semibold text-[#111411] hover:bg-[#acf153]"
           >
             <Link to="/auth">Entrar</Link>
           </Button>
@@ -150,27 +187,28 @@ function Home() {
             className="absolute inset-0 h-full w-full object-cover object-[68%_center]"
             fetchPriority="high"
           />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,#101410_0%,rgba(16,20,16,.95)_32%,rgba(16,20,16,.2)_72%),linear-gradient(0deg,#101410_0%,transparent_42%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_35%,rgba(155,234,54,.12),transparent_30%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,#101410_0%,rgba(16,20,16,.96)_30%,rgba(16,20,16,.16)_74%),linear-gradient(0deg,#101410_0%,transparent_46%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_21%_36%,rgba(155,234,54,.16),transparent_31%)]" />
+          <div className="marketing-hero-vignette absolute inset-0" />
 
           <div className="relative mx-auto w-full max-w-[1380px] px-5 pb-14 sm:px-8 lg:pb-0">
-            <div className="marketing-rise max-w-2xl">
+            <div className="marketing-rise max-w-3xl">
               <p className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#9bea36]">
                 <HeartPulse className="h-4 w-4" /> Tudo conectado. Seu resultado também.
               </p>
-              <h1 className="max-w-xl font-display text-5xl font-extrabold leading-[0.98] tracking-[-0.065em] sm:text-6xl lg:text-7xl">
+              <h1 className="max-w-[720px] font-display text-5xl font-extrabold leading-[0.93] tracking-[-0.07em] sm:text-6xl lg:text-[5.75rem]">
                 Plano certo.
                 <br />
                 Rotina possível.
               </h1>
-              <p className="mt-6 max-w-md text-base leading-relaxed text-white/66 sm:text-lg">
+              <p className="mt-7 max-w-lg text-base leading-relaxed text-white/66 sm:text-lg">
                 Dieta, treino e acompanhamento calculados para a vida que você realmente leva.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Button
                   asChild
                   size="lg"
-                  className="h-12 rounded-full bg-[#9bea36] px-6 font-semibold text-[#111411] shadow-[0_10px_40px_-8px_rgba(155,234,54,.55)] hover:bg-[#acf153]"
+                  className="marketing-primary-action h-12 rounded-full bg-[#9bea36] px-6 font-semibold text-[#111411] shadow-[0_10px_40px_-8px_rgba(155,234,54,.4)] hover:bg-[#acf153]"
                 >
                   <Link to="/auth">
                     Começar agora <ArrowRight className="ml-2 h-4 w-4" />
@@ -186,13 +224,18 @@ function Home() {
                 </Button>
               </div>
 
-              <dl className="mt-12 flex max-w-md flex-wrap gap-x-10 gap-y-4">
+              <dl className="mt-12 grid max-w-xl grid-cols-3 overflow-hidden rounded-2xl border border-white/10 bg-black/15 backdrop-blur-sm">
                 {STATS.map((s) => (
-                  <div key={s.l}>
-                    <dt className="font-display text-3xl font-extrabold tracking-[-0.04em] text-white">
+                  <div
+                    key={s.l}
+                    className="border-r border-white/10 px-4 py-4 last:border-r-0 sm:px-5"
+                  >
+                    <dt className="font-display text-2xl font-extrabold tracking-[-0.04em] text-white sm:text-3xl">
                       {s.v}
                     </dt>
-                    <dd className="text-xs text-white/50">{s.l}</dd>
+                    <dd className="mt-0.5 text-[11px] leading-tight text-white/48 sm:text-xs">
+                      {s.l}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -203,13 +246,6 @@ function Home() {
             aria-hidden
             className="absolute bottom-[11%] left-[43%] hidden h-px w-[48%] -rotate-6 bg-gradient-to-r from-transparent via-[#9bea36]/70 to-transparent shadow-[0_0_18px_rgba(155,234,54,.45)] lg:block"
           />
-          <a
-            href="#metodo"
-            aria-label="Rolar para o conteúdo"
-            className="absolute bottom-6 left-1/2 hidden -translate-x-1/2 animate-bounce text-white/40 transition-colors hover:text-white lg:block"
-          >
-            <ChevronDown className="h-6 w-6" />
-          </a>
         </section>
 
         <section className="border-y border-white/8 bg-[#151915]">
@@ -218,9 +254,10 @@ function Home() {
               (item) => (
                 <div
                   key={item}
-                  className="flex items-center justify-center gap-2 bg-[#151915] px-4 py-5 text-center text-sm font-semibold text-white/72"
+                  className="group flex items-center justify-center gap-2 bg-[#151915] px-4 py-5 text-center text-sm font-semibold text-white/72 transition-colors hover:bg-[#191e18] hover:text-white"
                 >
-                  <Check className="h-4 w-4 text-[#9bea36]" /> {item}
+                  <Check className="h-4 w-4 text-[#9bea36] transition-transform group-hover:scale-110" />{" "}
+                  {item}
                 </div>
               ),
             )}
@@ -251,7 +288,7 @@ function Home() {
                   key={item.title}
                   data-reveal
                   style={{ "--reveal-delay": `${index * 90}ms` } as React.CSSProperties}
-                  className="group relative overflow-hidden rounded-[1.5rem] border border-white/9 bg-[#191d19] p-7 transition-[transform,border-color] duration-300 hover:-translate-y-1 hover:border-[#9bea36]/35"
+                  className="marketing-surface group relative overflow-hidden rounded-[1.5rem] border border-white/9 bg-[#191d19] p-7 transition-[transform,border-color,box-shadow] duration-300 hover:-translate-y-1 hover:border-[#9bea36]/35 hover:shadow-[0_24px_70px_-42px_rgba(155,234,54,.38)]"
                 >
                   <span className="relative mb-12 grid h-11 w-11 place-items-center rounded-xl border border-[#9bea36]/25 bg-[#9bea36]/8 text-[#9bea36] transition-shadow duration-300 group-hover:shadow-[0_0_24px_-4px_rgba(155,234,54,.6)]">
                     <item.icon className="h-5 w-5" />
@@ -270,7 +307,7 @@ function Home() {
         <section id="plano" className="px-5 pb-24 sm:px-8 lg:pb-32">
           <div
             data-reveal
-            className="mx-auto grid max-w-[1240px] overflow-hidden rounded-[2rem] border border-white/9 bg-[#191d19] lg:grid-cols-[1.05fr_.95fr]"
+            className="marketing-feature mx-auto grid max-w-[1240px] overflow-hidden rounded-[2rem] border border-white/9 bg-[#191d19] lg:grid-cols-[1.05fr_.95fr]"
           >
             <div className="p-7 sm:p-10 lg:p-14">
               <Eyebrow>Seu plano</Eyebrow>
@@ -322,7 +359,7 @@ function Home() {
         <section id="seguranca" className="px-5 py-20 sm:px-8">
           <div
             data-reveal
-            className="mx-auto flex max-w-[1120px] flex-col gap-8 rounded-[2rem] border border-white/9 bg-[#191d19] p-8 sm:p-10 md:flex-row md:items-center md:justify-between md:gap-10"
+            className="marketing-surface mx-auto flex max-w-[1120px] flex-col gap-8 rounded-[2rem] border border-white/9 bg-[#191d19] p-8 sm:p-10 md:flex-row md:items-center md:justify-between md:gap-10"
           >
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-[#9bea36]/25 bg-[#9bea36]/8 text-[#9bea36]">
@@ -341,7 +378,7 @@ function Home() {
             </div>
             <Button
               asChild
-              className="w-fit shrink-0 rounded-full bg-[#9bea36] px-6 font-semibold text-[#111411] hover:bg-[#acf153]"
+              className="marketing-primary-action w-fit shrink-0 rounded-full bg-[#9bea36] px-6 font-semibold text-[#111411] hover:bg-[#acf153]"
             >
               <Link to="/auth">
                 Criar meu plano <ChevronRight className="ml-2 h-4 w-4" />
@@ -350,10 +387,41 @@ function Home() {
           </div>
         </section>
 
-        <section className="px-5 py-24 sm:px-8 lg:py-32">
+        <section id="duvidas" className="px-5 py-24 sm:px-8 lg:py-32">
+          <div className="mx-auto grid max-w-[1120px] gap-12 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
+            <div data-reveal>
+              <Eyebrow>Dúvidas frequentes</Eyebrow>
+              <h2 className="max-w-md font-display text-4xl font-bold leading-tight tracking-[-0.05em] sm:text-5xl">
+                Antes de começar, vale saber.
+              </h2>
+              <p className="mt-5 max-w-sm text-base leading-relaxed text-white/56">
+                Respostas diretas sobre personalização, mudanças na rotina e os limites do NEXO.
+              </p>
+            </div>
+
+            <Accordion type="single" collapsible className="border-t border-white/10" data-reveal>
+              {FAQ.map((item) => (
+                <AccordionItem
+                  key={item.question}
+                  value={item.question}
+                  className="border-white/10"
+                >
+                  <AccordionTrigger className="py-6 text-left text-base font-semibold text-white hover:no-underline sm:text-lg [&>svg]:text-[#9bea36]">
+                    {item.question}
+                  </AccordionTrigger>
+                  <AccordionContent className="max-w-2xl pb-6 pr-8 text-sm leading-relaxed text-white/58 sm:text-base">
+                    {item.answer}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
+        </section>
+
+        <section className="px-5 pb-24 sm:px-8 lg:pb-32">
           <div
             data-reveal
-            className="relative mx-auto grid max-w-[1240px] gap-10 overflow-hidden rounded-[2rem] bg-[#9bea36] px-7 py-12 text-[#111411] sm:px-12 sm:py-16 lg:grid-cols-[1.1fr_.9fr] lg:items-center"
+            className="marketing-cta relative mx-auto grid max-w-[1240px] gap-10 overflow-hidden rounded-[2rem] bg-[#9bea36] px-7 py-12 text-[#111411] sm:px-12 sm:py-16 lg:grid-cols-[1.1fr_.9fr] lg:items-center"
           >
             <div
               aria-hidden
@@ -423,6 +491,9 @@ function Home() {
             </a>
             <a href="#seguranca" className="transition-colors hover:text-white">
               Segurança
+            </a>
+            <a href="#duvidas" className="transition-colors hover:text-white">
+              Dúvidas
             </a>
             <Link to="/auth" className="transition-colors hover:text-white">
               Entrar
