@@ -127,8 +127,8 @@ export function SectionCard({
   return (
     <Card className={cn("gap-4 p-5 shadow-card sm:p-6", className)}>
       {title ? (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
             {icon ? (
               <span
                 className={cn(
@@ -146,7 +146,7 @@ export function SectionCard({
               ) : null}
             </div>
           </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
+          {action ? <div className="shrink-0 sm:ml-3">{action}</div> : null}
         </div>
       ) : null}
       {children}
