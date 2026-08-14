@@ -992,11 +992,34 @@ function MealCard({
 }) {
   const updateTime = useUpdateMealTime();
   const toggleCompletion = useToggleMealCompletion();
+  const [timeDraft, setTimeDraft] = useState(meal.scheduled_time?.slice(0, 5) ?? "");
   const items = meal.meal_items ?? [];
   const mt = macroTotals(items);
   const consumedItems = Array.isArray(consumedLog?.consumed_items)
     ? (consumedLog.consumed_items as unknown as DraftComponent[])
     : [];
+
+  useEffect(() => {
+    setTimeDraft(meal.scheduled_time?.slice(0, 5) ?? "");
+  }, [meal.scheduled_time]);
+
+  function changeTimeDraft(value: string) {
+    const digits = value.replace(/\D/g, "").slice(0, 4);
+    setTimeDraft(digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits);
+  }
+
+  function saveTimeDraft() {
+    if (timeDraft === meal.scheduled_time?.slice(0, 5)) return;
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timeDraft)) {
+      setTimeDraft(meal.scheduled_time?.slice(0, 5) ?? "");
+      toast.error("Informe um horário válido no formato HH:MM.");
+      return;
+    }
+    updateTime.mutate(
+      { mealId: meal.id, scheduled_time: timeDraft },
+      { onError: () => toast.error("Não foi possível atualizar o horário.") },
+    );
+  }
 
   function setCompleted() {
     toggleCompletion.mutate(
@@ -1049,15 +1072,30 @@ function MealCard({
             </Button>
           </div>
           <div className="mt-2 flex flex-col gap-2 border-t border-border/50 pt-2 sm:flex-row sm:items-center sm:gap-3">
-            <div className="w-full min-w-0 overflow-hidden rounded-md sm:w-36 sm:shrink-0">
+            <div className="w-full min-w-0 sm:w-36 sm:shrink-0">
+              <Input
+                type="text"
+                inputMode="numeric"
+                maxLength={5}
+                aria-label={`Horário de ${meal.name}`}
+                value={timeDraft}
+                onChange={(e) => changeTimeDraft(e.target.value)}
+                onBlur={saveTimeDraft}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                placeholder="08:30"
+                className="h-9 text-sm sm:hidden"
+              />
               <Input
                 type="time"
                 aria-label={`Horário de ${meal.name}`}
-                value={meal.scheduled_time ?? ""}
-                onChange={(e) =>
-                  updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value })
-                }
-                className="block h-9 min-w-0 max-w-full text-sm [inline-size:100%]"
+                value={timeDraft}
+                onChange={(e) => {
+                  setTimeDraft(e.target.value);
+                  updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value });
+                }}
+                className="hidden h-9 text-sm sm:block"
               />
             </div>
             <div className="min-w-0 flex-1">
