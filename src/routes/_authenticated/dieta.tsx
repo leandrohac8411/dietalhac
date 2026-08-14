@@ -1048,8 +1048,8 @@ function MealCard({
               <span className="truncate">Comi diferente</span>
             </Button>
           </div>
-          <div className="mt-2 flex items-center gap-3 border-t border-border/50 pt-2">
-            <div className="w-[7.75rem] shrink-0 overflow-hidden rounded-md sm:w-36">
+          <div className="mt-2 flex flex-col gap-2 border-t border-border/50 pt-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="w-full min-w-0 overflow-hidden rounded-md sm:w-36 sm:shrink-0">
               <Input
                 type="time"
                 aria-label={`Horário de ${meal.name}`}
