@@ -1049,7 +1049,7 @@ function MealCard({
             </Button>
           </div>
           <div className="mt-2 grid grid-cols-1 gap-2 border-t border-border/50 pt-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto] min-[360px]:items-center min-[360px]:gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 overflow-hidden rounded-md">
               <Input
                 type="time"
                 aria-label={`Horário de ${meal.name}`}
@@ -1057,7 +1057,7 @@ function MealCard({
                 onChange={(e) =>
                   updateTime.mutate({ mealId: meal.id, scheduled_time: e.target.value })
                 }
-                className="h-9 w-full text-sm"
+                className="block h-9 min-w-0 max-w-full text-sm [inline-size:100%]"
               />
             </div>
             <AddFoodPopover mealId={meal.id} foods={foods} />
