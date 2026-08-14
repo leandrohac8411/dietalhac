@@ -1048,8 +1048,8 @@ function MealCard({
               <span className="truncate">Comi diferente</span>
             </Button>
           </div>
-          <div className="mt-2 grid grid-cols-1 gap-2 border-t border-border/50 pt-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto] min-[360px]:items-center min-[360px]:gap-3">
-            <div className="min-w-0 overflow-hidden rounded-md">
+          <div className="mt-2 flex items-center gap-3 border-t border-border/50 pt-2">
+            <div className="w-[7.75rem] shrink-0 overflow-hidden rounded-md sm:w-36">
               <Input
                 type="time"
                 aria-label={`Horário de ${meal.name}`}
@@ -1060,7 +1060,9 @@ function MealCard({
                 className="block h-9 min-w-0 max-w-full text-sm [inline-size:100%]"
               />
             </div>
-            <AddFoodPopover mealId={meal.id} foods={foods} />
+            <div className="min-w-0 flex-1">
+              <AddFoodPopover mealId={meal.id} foods={foods} />
+            </div>
           </div>
         </div>
       }
@@ -1237,7 +1239,7 @@ function AddFoodPopover({ mealId, foods }: { mealId: string; foods: FoodItem[] }
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="secondary" size="sm" className="w-full shrink-0 px-3 min-[360px]:w-auto">
+        <Button variant="secondary" size="sm" className="w-full px-3">
           <Plus className="mr-1 h-4 w-4" /> Adicionar
         </Button>
       </PopoverTrigger>
