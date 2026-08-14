@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   Activity,
   Apple,
+  ArrowRight,
   ClipboardCheck,
   Droplets,
   Dumbbell,
@@ -213,26 +214,20 @@ function Dashboard() {
           className="lg:col-span-2"
         >
           {g?.target_calories ? (
-            <div className="space-y-5">
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <p className="font-display text-4xl font-bold leading-none">
-                    {formatKcal(g.target_calories)}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">meta diária de energia</p>
-                </div>
-                <div className="text-right text-sm text-muted-foreground">
-                  <p>
-                    <span className="font-semibold text-foreground">{pg}g</span> proteína
-                  </p>
-                  <p>
-                    <span className="font-semibold text-foreground">{cg}g</span> carbo ·{" "}
-                    <span className="font-semibold text-foreground">{fg}g</span> gordura
-                  </p>
-                </div>
+            <div className="space-y-5 pt-1.5">
+              <div className="rounded-2xl border border-border/60 bg-muted/25 p-4 sm:p-5">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  Meta diária de energia
+                </p>
+                <p className="mt-2 whitespace-nowrap font-display text-4xl font-bold leading-none tracking-tight sm:text-5xl">
+                  {formatKcal(g.target_calories)}
+                </p>
               </div>
 
-              <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                aria-label="Distribuição calórica entre proteína, carboidrato e gordura"
+              >
                 <div className="bg-chart-1" style={{ width: seg(pg * 4) }} />
                 <div className="bg-chart-3" style={{ width: seg(cg * 4) }} />
                 <div className="bg-chart-4" style={{ width: seg(fg * 9) }} />
@@ -386,25 +381,49 @@ function Dashboard() {
           accent="amber"
         >
           {nextMeal ? (
-            <div className="flex h-full flex-col justify-between gap-4">
-              <div>
-                <p className="font-display text-2xl font-bold">{nextMeal.name}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {nextMeal.scheduled_time ?? "—"} · {formatKcal(nextMealKcal)}
+            <div className="flex flex-col gap-4 pt-1.5">
+              <div className="flex items-end justify-between gap-3 border-b border-border/60 pb-4">
+                <div className="min-w-0">
+                  <p className="truncate font-display text-2xl font-bold tracking-tight">
+                    {nextMeal.name}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {nextMeal.scheduled_time ?? "—"}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-sm font-semibold">
+                  {formatKcal(nextMealKcal)}
+                </span>
+              </div>
+
+              <div className="rounded-xl bg-muted/30 p-3.5">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Itens planejados
                 </p>
-                <div className="mt-3 space-y-1">
+                <div className="space-y-2.5">
                   {nextMeal.meal_items.slice(0, 4).map((it) => (
-                    <p key={it.id} className="truncate text-sm text-muted-foreground">
-                      • {it.food_name}{" "}
-                      <span className="text-xs">
-                        ({Math.round(Number(it.quantity))} {it.unit})
+                    <div key={it.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate text-foreground/85">{it.food_name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {Math.round(Number(it.quantity))} {it.unit}
                       </span>
-                    </p>
+                    </div>
                   ))}
                 </div>
               </div>
-              <Button asChild variant="secondary" size="sm">
-                <Link to="/dieta">Ver dieta completa</Link>
+
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="group h-11 w-full justify-between rounded-xl border-accent/25 bg-accent/8 px-3 pl-4 font-semibold shadow-[inset_0_1px_0_rgb(255_255_255/0.035)] transition-all hover:border-accent/45 hover:bg-accent/14 hover:text-foreground"
+              >
+                <Link to="/dieta">
+                  Ver dieta completa
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-accent text-accent-foreground transition-transform group-hover:translate-x-0.5">
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </span>
+                </Link>
               </Button>
             </div>
           ) : (
@@ -443,12 +462,12 @@ function Dashboard() {
 
 function MacroTile({ color, label, value }: { color: string; label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-muted/50 p-3">
+    <div className="min-w-0 rounded-xl border border-border/40 bg-muted/35 p-3 sm:p-4">
       <div className="flex items-center gap-1.5">
         <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <p className="mt-1 font-display text-lg font-bold">{value}</p>
+      <p className="mt-1.5 whitespace-nowrap font-display text-lg font-bold sm:text-xl">{value}</p>
     </div>
   );
 }

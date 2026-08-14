@@ -643,7 +643,7 @@ function FreeFoodLog({
       icon={<Search className="h-4 w-4" />}
       accent="amber"
     >
-      <div className="space-y-3">
+      <div className="space-y-4 pt-1.5">
         {targetMeal ? (
           <AlertNote tone="info">
             Registrando o que você realmente comeu no lugar de <strong>{targetMeal.name}</strong>.
@@ -719,21 +719,28 @@ function FreeFoodLog({
           </div>
         ) : null}
 
-        <div className="flex gap-2">
-          <Input
-            placeholder="Ex.: bolo de chocolate, presunto, pizza..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={runOffSearch}
-            disabled={offLoading || query.trim().length < 2}
-          >
-            <Search className="mr-1.5 h-4 w-4" />
-            {offLoading ? "Buscando..." : "Buscar"}
-          </Button>
+        <div className="rounded-2xl border border-border/60 bg-muted/20 p-3 sm:p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            O que você consumiu?
+          </p>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Input
+              placeholder="Ex.: bolo de chocolate, presunto, pizza..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-11 bg-background/70"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 px-5"
+              onClick={runOffSearch}
+              disabled={offLoading || query.trim().length < 2}
+            >
+              <Search className="mr-1.5 h-4 w-4" />
+              {offLoading ? "Buscando..." : "Buscar"}
+            </Button>
+          </div>
         </div>
 
         {localResults.length > 0 || offResults.length > 0 ? (
@@ -819,8 +826,14 @@ function FreeFoodLog({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={() => setManualOpen((v) => !v)}>
+        <div className="flex flex-wrap border-t border-border/50 pt-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="px-1 text-muted-foreground hover:text-foreground"
+            onClick={() => setManualOpen((v) => !v)}
+          >
             <PenLine className="mr-1.5 h-4 w-4" /> Não encontrou? Informar valores
           </Button>
         </div>
