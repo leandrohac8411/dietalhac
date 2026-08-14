@@ -1085,7 +1085,7 @@ function MealCard({
                   if (e.key === "Enter") e.currentTarget.blur();
                 }}
                 placeholder="08:30"
-                className="h-9 text-sm sm:hidden"
+                className="h-11 text-center text-base font-medium tracking-wide sm:hidden"
               />
               <Input
                 type="time"
