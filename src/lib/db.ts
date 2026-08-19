@@ -571,6 +571,62 @@ export function useAdminUsers(enabled = true) {
   });
 }
 
+export type AdminEngagementDay = {
+  date: string;
+  points: number;
+  meals_completed: number;
+  meals_planned: number;
+  meal_registrations: number;
+  workout_expected: boolean;
+  workout_completed: boolean;
+  water_ml: number;
+  water_target: number;
+};
+
+export type AdminEngagementEvent = {
+  type: "meal" | "workout" | "water" | "checkin";
+  at: string;
+  title: string;
+  detail: string;
+};
+
+export type AdminEngagementUser = {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  onboarding_completed: boolean;
+  created_at: string;
+  period_points: number;
+  adherence_percent: number;
+  today_points: number;
+  streak_days: number;
+  last_activity_at: string | null;
+  last_7_days: AdminEngagementDay[];
+  recent_events: AdminEngagementEvent[];
+};
+
+export type AdminEngagementDashboard = {
+  generated_at: string;
+  days: number;
+  users: AdminEngagementUser[];
+};
+
+/** Resumo agregado de uso. A função no banco valida o papel admin. */
+export function useAdminEngagement(enabled = true, days = 30) {
+  return useQuery({
+    queryKey: ["adminEngagement", days],
+    enabled,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_engagement_dashboard", {
+        p_days_back: days,
+      });
+      if (error) throw error;
+      return data as unknown as AdminEngagementDashboard;
+    },
+  });
+}
+
 export function useCreateFoodItem() {
   const qc = useQueryClient();
   return useMutation({

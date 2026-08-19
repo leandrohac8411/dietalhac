@@ -1261,6 +1261,12 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_engagement_dashboard: {
+        Args: {
+          p_days_back?: number;
+        };
+        Returns: Json;
+      };
       consume_diet_generation_quota: {
         Args: Record<PropertyKey, never>;
         Returns: boolean;

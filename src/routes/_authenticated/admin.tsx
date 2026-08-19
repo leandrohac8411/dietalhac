@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { EmptyState, LoadingBlock, PageHeader, SectionCard, StatCard } from "@/components/common";
+import { AdminEngagementPanel } from "@/components/admin-engagement";
 import {
   useAdminExercises,
   useAdminFoods,
@@ -35,9 +36,8 @@ import {
   useUpdateExercise,
   useUpdateFoodItem,
 } from "@/lib/db";
-import type { AdminProfile, Exercise, FoodItem } from "@/lib/db";
+import type { Exercise, FoodItem } from "@/lib/db";
 import { MUSCLE_GROUP_LABELS } from "@/lib/plan-generator";
-import { formatNumber } from "@/lib/fitness";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   component: Page_admin,
@@ -104,7 +104,7 @@ function Page_admin() {
         />
       </div>
 
-      <Tabs defaultValue="alimentos">
+      <Tabs defaultValue="usuarios">
         <TabsList>
           <TabsTrigger value="alimentos">Alimentos</TabsTrigger>
           <TabsTrigger value="exercicios">Exercícios</TabsTrigger>
@@ -125,62 +125,7 @@ function Page_admin() {
 }
 
 function UsersPanel() {
-  const users = useAdminUsers();
-  const [search, setSearch] = useState("");
-
-  if (users.isLoading) return <LoadingBlock rows={3} />;
-
-  const rows = (users.data ?? []).filter((u: AdminProfile) =>
-    (u.full_name || "").toLowerCase().includes(search.toLowerCase()),
-  );
-
-  return (
-    <SectionCard
-      title="Pessoas cadastradas"
-      description="Somente leitura — dados vêm do perfil de cada usuário."
-      icon={<Users className="h-4 w-4" />}
-      accent="amber"
-      action={
-        <Input
-          placeholder="Buscar por nome..."
-          value={search}
-          onChange={(ev) => setSearch(ev.target.value)}
-          className="h-9 w-48"
-        />
-      }
-    >
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={<Users className="h-5 w-5" />}
-          title="Nenhum usuário encontrado"
-          description="Ajuste a busca ou aguarde novos cadastros."
-        />
-      ) : (
-        <div className="divide-y">
-          {rows.map((u: AdminProfile) => (
-            <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{u.full_name || "Sem nome"}</p>
-                <p className="text-xs text-muted-foreground">
-                  {u.biological_sex ?? "—"} ·{" "}
-                  {u.current_weight_kg ? `${formatNumber(Number(u.current_weight_kg))} kg` : "—"} ·
-                  cadastrado em{" "}
-                  {new Date(u.created_at).toLocaleDateString("pt-BR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    year: "numeric",
-                  })}
-                </p>
-              </div>
-              <Badge variant={u.onboarding_completed ? "default" : "outline"}>
-                {u.onboarding_completed ? "Onboarding completo" : "Onboarding pendente"}
-              </Badge>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
-  );
+  return <AdminEngagementPanel />;
 }
 
 type ExerciseForm = {
