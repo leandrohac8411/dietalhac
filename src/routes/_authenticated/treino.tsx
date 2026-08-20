@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Dumbbell, Minus, Play, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
+import { CheckCircle2, Dumbbell, Minus, Play, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import { Disclaimer, EmptyState, LoadingBlock, PageHeader, SectionCard } from "@
 import {
   useActiveGoal,
   useAddWorkoutExercise,
+  useCompleteWorkout,
   useDeleteWorkoutExercise,
   useExercises,
   useGenerateWorkout,
@@ -46,12 +47,11 @@ import {
 } from "@/lib/db";
 import type { Exercise, WorkoutExerciseRow } from "@/lib/db";
 import { MUSCLE_GROUP_LABELS, SPLIT_LABELS } from "@/lib/plan-generator";
+import { currentCycleWorkout, uniqueCycleWorkouts } from "@/lib/workout-cycle";
 
 export const Route = createFileRoute("/_authenticated/treino")({
   component: Treino,
 });
-
-const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const DIFF_STYLE: Record<string, string> = {
   iniciante: "bg-chart-1/15 text-chart-1",
@@ -64,6 +64,8 @@ type WorkoutWithExercises = {
   name: string;
   muscle_groups: string | null;
   weekday: number | null;
+  cycle_position: number | null;
+  sort_order: number;
   estimated_min: number | null;
   workout_exercises: WorkoutExerciseRow[];
 };
@@ -130,7 +132,8 @@ function Treino() {
     );
   }
 
-  const workouts = (data.workouts ?? []) as unknown as WorkoutWithExercises[];
+  const workouts = uniqueCycleWorkouts((data.workouts ?? []) as unknown as WorkoutWithExercises[]);
+  const currentWorkout = currentCycleWorkout(data.plan, workouts);
   const splitLabel = SPLIT_LABELS[data.plan.split_type] ?? data.plan.split_type;
   const mediaByName = new Map((exercises.data ?? []).map((e) => [e.name, e.media_url] as const));
 
@@ -138,9 +141,11 @@ function Treino() {
     <div className="space-y-6">
       <PageHeader
         title="Meu treino"
-        subtitle={`${splitLabel} · ${workouts.length} treinos por semana`}
+        subtitle={`${splitLabel} · ${workouts.length} fichas · ${data.plan.days_per_week} dias por semana`}
         action={<RegenerateButton onConfirm={runGenerate} pending={generate.isPending} />}
       />
+
+      <CycleStatus workouts={workouts} currentPosition={data.plan.current_cycle_position} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         {workouts.map((w) => (
@@ -149,6 +154,7 @@ function Treino() {
             workout={w}
             exercises={exercises.data ?? []}
             mediaByName={mediaByName}
+            isCurrent={currentWorkout?.id === w.id}
           />
         ))}
       </div>
@@ -165,17 +171,33 @@ function WorkoutCard({
   workout,
   exercises,
   mediaByName,
+  isCurrent,
 }: {
   workout: WorkoutWithExercises;
   exercises: Exercise[];
   mediaByName: Map<string, string | null>;
+  isCurrent: boolean;
 }) {
   const list = workout.workout_exercises ?? [];
-  const weekday = workout.weekday !== null ? WEEKDAYS[workout.weekday] : null;
+  const complete = useCompleteWorkout();
+
+  function finish() {
+    complete.mutate(workout, {
+      onSuccess: () =>
+        toast.success("Ficha concluída", {
+          description: "O próximo treino do ciclo já está preparado.",
+        }),
+      onError: (error) =>
+        toast.error("Não foi possível concluir", {
+          description: error instanceof Error ? error.message : "Tente novamente.",
+        }),
+    });
+  }
+
   return (
     <SectionCard
       title={workout.name}
-      description={`${workout.muscle_groups ?? ""}${weekday ? ` · ${weekday}` : ""} · ~${workout.estimated_min ?? 60} min`}
+      description={`${workout.muscle_groups ?? ""} · ~${workout.estimated_min ?? 60} min`}
       icon={<Dumbbell className="h-4 w-4" />}
       accent="blue"
       action={
@@ -186,6 +208,16 @@ function WorkoutCard({
       }
       className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
+      {isCurrent ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-accent">
+            <CheckCircle2 className="h-4 w-4" /> Treino atual
+          </div>
+          <Button size="sm" onClick={finish} disabled={complete.isPending}>
+            {complete.isPending ? "Finalizando..." : "Finalizar treino"}
+          </Button>
+        </div>
+      ) : null}
       {list.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum exercício neste treino.</p>
       ) : (
@@ -197,6 +229,57 @@ function WorkoutCard({
       )}
     </SectionCard>
   );
+}
+
+function CycleStatus({
+  workouts,
+  currentPosition,
+}: {
+  workouts: WorkoutWithExercises[];
+  currentPosition: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Sequência contínua
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Descansos e faltas não reiniciam o ciclo. Ele avança ao concluir a ficha atual.
+          </p>
+        </div>
+        <div className="flex items-center gap-2" aria-label="Sequência das fichas">
+          {workouts.map((workout, index) => {
+            const position = workout.cycle_position ?? workout.sort_order;
+            const active = position === currentPosition;
+            return (
+              <div key={workout.id} className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "grid h-9 min-w-9 place-items-center rounded-full border px-2 text-xs font-bold transition-colors",
+                    active
+                      ? "border-accent bg-accent text-accent-foreground ring-4 ring-accent/10"
+                      : "border-border bg-muted/35 text-muted-foreground",
+                  )}
+                  title={workout.name}
+                >
+                  {cycleLetter(workout.name, index)}
+                </span>
+                {index < workouts.length - 1 ? (
+                  <span className="h-px w-3 bg-border sm:w-5" />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function cycleLetter(name: string, index: number) {
+  return name.match(/Treino\s+([A-Z])/i)?.[1]?.toUpperCase() ?? String.fromCharCode(65 + index);
 }
 
 function ExerciseRow({ ex, media }: { ex: WorkoutExerciseRow; media: string | null }) {

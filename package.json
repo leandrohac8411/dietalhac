@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "test:diet": "node --experimental-strip-types scripts/validate-diet-generator.mjs",
+    "test:workout": "node --experimental-strip-types scripts/validate-workout-cycle.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

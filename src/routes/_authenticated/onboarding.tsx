@@ -27,6 +27,7 @@ import {
 } from "@/lib/db";
 import { getErrorMessage } from "@/lib/errors";
 import { ACTIVITY_OPTIONS } from "@/lib/activities";
+import { defaultTrainingWeekdays } from "@/lib/workout-cycle";
 import {
   GOAL_LABELS,
   activityFactor,
@@ -80,6 +81,7 @@ const SPLIT_PREFERENCE: Opt[] = [
   { v: "ab", l: "AB" },
   { v: "abc", l: "ABC" },
   { v: "abcd", l: "ABCD" },
+  { v: "isolated_5", l: "5 dias por grupos" },
 ];
 const PRIORITY_LEVEL: Opt[] = [
   { v: "balanced", l: "Equilíbrio" },
@@ -189,6 +191,7 @@ type FormState = {
   wake_time: string;
   sleep_time: string;
   training_days: string;
+  training_weekdays: number[];
   training_duration_min: string;
   training_time: string;
   experience_level: string;
@@ -227,6 +230,7 @@ const INITIAL: FormState = {
   wake_time: "06:30",
   sleep_time: "23:00",
   training_days: "3",
+  training_weekdays: [1, 3, 5],
   training_duration_min: "60",
   training_time: "",
   experience_level: "",
@@ -413,6 +417,10 @@ function Onboarding() {
       wake_time: pr?.wake_time || f.wake_time,
       sleep_time: pr?.sleep_time || f.sleep_time,
       training_days: str(pr?.training_days) || f.training_days,
+      training_weekdays:
+        pr?.training_weekdays && pr.training_weekdays.length > 0
+          ? pr.training_weekdays
+          : defaultTrainingWeekdays(Number(pr?.training_days ?? f.training_days)),
       training_duration_min: str(pr?.training_duration_min) || f.training_duration_min,
       training_time: pr?.training_time || f.training_time,
       experience_level: pr?.experience_level ?? f.experience_level,
@@ -476,6 +484,26 @@ function Onboarding() {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const setTrainingDays = (value: string) =>
+    setForm((f) => ({
+      ...f,
+      training_days: value,
+      training_weekdays: defaultTrainingWeekdays(Number(value)),
+    }));
+
+  const toggleTrainingWeekday = (day: number) =>
+    setForm((f) => {
+      const selected = f.training_weekdays.includes(day);
+      if (selected) {
+        if (f.training_weekdays.length <= 1) return f;
+        const next = f.training_weekdays.filter((value) => value !== day);
+        return { ...f, training_weekdays: next, training_days: String(next.length) };
+      }
+      if (f.training_weekdays.length >= 6) return f;
+      const next = [...f.training_weekdays, day].sort();
+      return { ...f, training_weekdays: next, training_days: String(next.length) };
+    });
 
   const toggleArr = (key: "priority_areas" | "equipment" | "dietary_restrictions", v: string) =>
     setForm((f) => {
@@ -626,6 +654,7 @@ function Onboarding() {
           wake_time: form.wake_time || null,
           sleep_time: form.sleep_time || null,
           training_days: int(form.training_days),
+          training_weekdays: form.training_weekdays,
           training_duration_min: int(form.training_duration_min),
           training_time: form.training_time || null,
           experience_level: form.experience_level,
@@ -848,7 +877,7 @@ function Onboarding() {
                 <PillGroup
                   options={["1", "2", "3", "4", "5", "6"].map((v) => ({ v, l: v }))}
                   value={form.training_days}
-                  onChange={(v) => set("training_days", v)}
+                  onChange={setTrainingDays}
                 />
               </Field>
               <Field label="Duração (min)">
@@ -864,6 +893,34 @@ function Onboarding() {
                   value={form.training_time}
                   onChange={(e) => set("training_time", e.target.value)}
                 />
+              </Field>
+            </div>
+            <div className="mt-4">
+              <Field
+                label="Quais dias você costuma treinar?"
+                hint="O ciclo só avança quando você conclui uma ficha. Se faltar, ela continua sendo a próxima."
+              >
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAY_LABELS.map((label, day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => toggleTrainingWeekday(day)}
+                      className={cn(
+                        "grid h-10 w-10 place-items-center rounded-xl border text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        form.training_weekdays.includes(day)
+                          ? "border-accent bg-accent text-accent-foreground"
+                          : "border-border/70 bg-muted/25 text-muted-foreground hover:border-accent/50",
+                      )}
+                      aria-pressed={form.training_weekdays.includes(day)}
+                      aria-label={
+                        ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"][day]
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </Field>
             </div>
             <div className="mt-4">

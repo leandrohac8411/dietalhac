@@ -32,6 +32,7 @@ import {
   useFoodLogsToday,
   useLogWater,
   useMealPlan,
+  usePreferences,
   useProfile,
   useSessions,
   useToggleMealCompletion,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/db";
 import type { MealItemRow } from "@/lib/db";
 import { formatNumber, parseHM } from "@/lib/fitness";
+import { currentCycleWorkout, isTrainingDay, uniqueCycleWorkouts } from "@/lib/workout-cycle";
 
 export const Route = createFileRoute("/_authenticated/meu-dia")({
   component: MeuDia,
@@ -59,6 +61,8 @@ type WorkoutWithExercises = {
   name: string;
   muscle_groups: string | null;
   weekday: number | null;
+  cycle_position: number | null;
+  sort_order: number;
   estimated_min: number | null;
   workout_exercises: Array<{ id: string }>;
 };
@@ -78,9 +82,10 @@ function MeuDia() {
   const foodLogs = useFoodLogsToday();
   const water = useWaterToday();
   const workoutPlan = useWorkoutPlan();
+  const preferences = usePreferences();
   const sessions = useSessions();
 
-  const queries = [profile, goal, mealPlan, foodLogs, water, workoutPlan, sessions];
+  const queries = [profile, goal, mealPlan, foodLogs, water, workoutPlan, preferences, sessions];
   if (queries.some((query) => query.isLoading)) return <LoadingBlock rows={6} />;
 
   const failed = queries.find((query) => query.isError);
@@ -132,16 +137,22 @@ function MeuDia() {
     { calories: 0, protein: 0, carbs: 0, fat: 0 },
   );
   const waterMl = (water.data ?? []).reduce((sum, item) => sum + Number(item.amount_ml ?? 0), 0);
-  const workouts = (workoutPlan.data?.workouts ?? []) as unknown as WorkoutWithExercises[];
-  const weekday = new Date().getDay();
-  const todayWorkout = workouts.find((workout) => workout.weekday === weekday) ?? null;
+  const workouts = uniqueCycleWorkouts(
+    (workoutPlan.data?.workouts ?? []) as unknown as WorkoutWithExercises[],
+  );
+  const todayWorkout = workoutPlan.data
+    ? currentCycleWorkout(workoutPlan.data.plan, workouts)
+    : null;
+  const workoutExpected = isTrainingDay(preferences.data?.training_weekdays);
   const completedWorkout = (sessions.data ?? []).find(
     (session) =>
       session.finished_at &&
       localDateOf(session.finished_at) === today() &&
-      (!todayWorkout || session.workout_id === todayWorkout.id),
+      (!workoutPlan.data ||
+        session.workout_plan_id === workoutPlan.data.plan.id ||
+        workouts.some((workout) => workout.id === session.workout_id)),
   );
-  const totalActions = meals.length + (todayWorkout ? 1 : 0);
+  const totalActions = meals.length + (todayWorkout && workoutExpected ? 1 : 0);
   const completedActions = completedMeals + (completedWorkout ? 1 : 0);
   const dayProgress = totalActions ? Math.round((completedActions / totalActions) * 100) : 0;
 
@@ -231,7 +242,9 @@ function MeuDia() {
           accent="green"
           action={
             <Button asChild variant="ghost" size="sm">
-              <Link to="/dieta">Ver dieta <ChevronRight className="ml-1 h-4 w-4" /></Link>
+              <Link to="/dieta">
+                Ver dieta <ChevronRight className="ml-1 h-4 w-4" />
+              </Link>
             </Button>
           }
         >
@@ -249,7 +262,11 @@ function MeuDia() {
 
         <div className="space-y-4">
           <WaterCard current={waterMl} goal={goal.data.water_ml ?? 2500} />
-          <WorkoutCard workout={todayWorkout} completed={Boolean(completedWorkout)} />
+          <WorkoutCard
+            workout={todayWorkout}
+            completed={Boolean(completedWorkout)}
+            scheduled={workoutExpected}
+          />
         </div>
       </div>
     </div>
@@ -285,17 +302,28 @@ function Metric({
         <span className="ml-1.5 text-xs text-muted-foreground">{target}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full transition-all duration-500", color)} style={{ width: `${progress}%` }} />
+        <div
+          className={cn("h-full rounded-full transition-all duration-500", color)}
+          style={{ width: `${progress}%` }}
+        />
       </div>
     </Card>
   );
 }
 
-function MealTimeline({ meals, completedIds }: { meals: MealWithItems[]; completedIds: Set<string | null> }) {
+function MealTimeline({
+  meals,
+  completedIds,
+}: {
+  meals: MealWithItems[];
+  completedIds: Set<string | null>;
+}) {
   const toggle = useToggleMealCompletion();
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const sorted = [...meals].sort((a, b) => a.sort_order - b.sort_order);
-  const nextId = sorted.find((meal) => !completedIds.has(meal.id) && (parseHM(meal.scheduled_time) ?? 0) >= nowMinutes)?.id;
+  const nextId = sorted.find(
+    (meal) => !completedIds.has(meal.id) && (parseHM(meal.scheduled_time) ?? 0) >= nowMinutes,
+  )?.id;
 
   function setCompleted(meal: MealWithItems, completed: boolean) {
     toggle.mutate(
@@ -311,7 +339,9 @@ function MealTimeline({ meals, completedIds }: { meals: MealWithItems[]; complet
     <div>
       {sorted.map((meal, index) => {
         const completed = completedIds.has(meal.id);
-        const calories = Math.round(meal.meal_items.reduce((sum, item) => sum + Number(item.calories ?? 0), 0));
+        const calories = Math.round(
+          meal.meal_items.reduce((sum, item) => sum + Number(item.calories ?? 0), 0),
+        );
         const isNext = meal.id === nextId;
         return (
           <div key={meal.id} className="grid grid-cols-[36px_minmax(0,1fr)_auto] gap-3">
@@ -332,11 +362,20 @@ function MealTimeline({ meals, completedIds }: { meals: MealWithItems[]; complet
               >
                 {completed ? <Check className="h-4 w-4" /> : <Clock3 className="h-3.5 w-3.5" />}
               </button>
-              {index < sorted.length - 1 ? <span className="my-1 h-full min-h-8 w-px bg-border" /> : null}
+              {index < sorted.length - 1 ? (
+                <span className="my-1 h-full min-h-8 w-px bg-border" />
+              ) : null}
             </div>
             <div className="min-w-0 pb-5 pt-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <p className={cn("text-sm font-semibold", completed && "text-muted-foreground line-through")}>{meal.name}</p>
+                <p
+                  className={cn(
+                    "text-sm font-semibold",
+                    completed && "text-muted-foreground line-through",
+                  )}
+                >
+                  {meal.name}
+                </p>
                 {isNext && !completed ? (
                   <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-foreground">
                     Próxima
@@ -348,7 +387,9 @@ function MealTimeline({ meals, completedIds }: { meals: MealWithItems[]; complet
               </p>
             </div>
             <div className="pb-5 pt-1 text-right">
-              <p className="text-sm font-semibold tabular-nums">{meal.scheduled_time?.slice(0, 5) ?? "—"}</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {meal.scheduled_time?.slice(0, 5) ?? "—"}
+              </p>
               <p className="text-xs text-muted-foreground">{calories} kcal</p>
             </div>
           </div>
@@ -372,17 +413,40 @@ function WaterCard({ current, goal }: { current: number; goal: number }) {
   }
 
   return (
-    <SectionCard title="Hidratação" description={`${cups} copos registrados`} icon={<Droplets className="h-4 w-4" />} accent="blue">
+    <SectionCard
+      title="Hidratação"
+      description={`${cups} copos registrados`}
+      icon={<Droplets className="h-4 w-4" />}
+      accent="blue"
+    >
       <div className="flex items-center gap-5">
-        <Ring value={current} max={goal} label={`${Math.round((current / goal) * 100)}%`} sub="da meta" accent="blue" size={82} stroke={8} />
+        <Ring
+          value={current}
+          max={goal}
+          label={`${Math.round((current / goal) * 100)}%`}
+          sub="da meta"
+          accent="blue"
+          size={82}
+          stroke={8}
+        />
         <div className="min-w-0 flex-1">
           <p className="font-display text-2xl font-bold">{formatNumber(current / 1000)} L</p>
           <p className="text-xs text-muted-foreground">Meta de {formatNumber(goal / 1000)} L</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => add(250)} disabled={pending}>+ 250 ml</Button>
-            <Button size="sm" variant="secondary" onClick={() => add(500)} disabled={pending}>+ 500 ml</Button>
+            <Button size="sm" onClick={() => add(250)} disabled={pending}>
+              + 250 ml
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => add(500)} disabled={pending}>
+              + 500 ml
+            </Button>
             {current > 0 ? (
-              <Button size="icon" variant="ghost" onClick={() => undoWater.mutate()} disabled={pending} aria-label="Desfazer último registro">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => undoWater.mutate()}
+                disabled={pending}
+                aria-label="Desfazer último registro"
+              >
                 <RotateCcw className="h-4 w-4" />
               </Button>
             ) : null}
@@ -393,15 +457,30 @@ function WaterCard({ current, goal }: { current: number; goal: number }) {
   );
 }
 
-function WorkoutCard({ workout, completed }: { workout: WorkoutWithExercises | null; completed: boolean }) {
+function WorkoutCard({
+  workout,
+  completed,
+  scheduled,
+}: {
+  workout: WorkoutWithExercises | null;
+  completed: boolean;
+  scheduled: boolean;
+}) {
   const complete = useCompleteWorkout();
 
   if (!workout) {
     return (
-      <SectionCard title="Treino" description={`Hoje é ${WEEKDAYS[new Date().getDay()]}`} icon={<Dumbbell className="h-4 w-4" />} accent="violet">
+      <SectionCard
+        title="Treino"
+        description={`Hoje é ${WEEKDAYS[new Date().getDay()]}`}
+        icon={<Dumbbell className="h-4 w-4" />}
+        accent="violet"
+      >
         <div className="rounded-2xl bg-muted/60 p-4">
           <p className="text-sm font-semibold">Dia de recuperação</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Sono, hidratação e alimentação também fazem parte do resultado.</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Sono, hidratação e alimentação também fazem parte do resultado.
+          </p>
         </div>
       </SectionCard>
     );
@@ -410,20 +489,43 @@ function WorkoutCard({ workout, completed }: { workout: WorkoutWithExercises | n
   function finish() {
     if (!workout) return;
     complete.mutate(workout, {
-      onSuccess: () => toast.success("Treino concluído!", { description: "Sua sessão entrou no histórico." }),
+      onSuccess: () =>
+        toast.success("Treino concluído!", { description: "Sua sessão entrou no histórico." }),
       onError: () => toast.error("Não foi possível concluir o treino."),
     });
   }
 
   return (
-    <SectionCard title="Treino de hoje" description={WEEKDAYS[new Date().getDay()]} icon={<Dumbbell className="h-4 w-4" />} accent="violet">
-      <div className={cn("rounded-2xl border p-4", completed ? "border-success/30 bg-success/10" : "bg-muted/40")}>
+    <SectionCard
+      title={completed ? "Treino concluído" : scheduled ? "Treino de hoje" : "Próxima ficha"}
+      description={
+        completed
+          ? "A sequência já avançou"
+          : scheduled
+            ? WEEKDAYS[new Date().getDay()]
+            : "Hoje é descanso programado"
+      }
+      icon={<Dumbbell className="h-4 w-4" />}
+      accent="violet"
+    >
+      <div
+        className={cn(
+          "rounded-2xl border p-4",
+          completed ? "border-success/30 bg-success/10" : "bg-muted/40",
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="font-semibold">{workout.name}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{workout.muscle_groups ?? "Treino completo"}</p>
+            <p className="font-semibold">{completed ? `Próxima: ${workout.name}` : workout.name}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {workout.muscle_groups ?? "Treino completo"}
+            </p>
           </div>
-          {completed ? <span className="grid h-8 w-8 place-items-center rounded-full bg-success text-success-foreground"><Check className="h-4 w-4" /></span> : null}
+          {completed ? (
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-success text-success-foreground">
+              <Check className="h-4 w-4" />
+            </span>
+          ) : null}
         </div>
         <div className="mt-4 flex gap-4 text-xs text-muted-foreground">
           <span>{workout.workout_exercises.length} exercícios</span>
@@ -431,12 +533,22 @@ function WorkoutCard({ workout, completed }: { workout: WorkoutWithExercises | n
         </div>
         <div className="mt-4 flex gap-2">
           {completed ? (
-            <Button variant="secondary" className="flex-1" disabled>Concluído hoje</Button>
+            <Button variant="secondary" className="flex-1" disabled>
+              Concluído hoje
+            </Button>
+          ) : !scheduled ? (
+            <Button asChild variant="secondary" className="flex-1">
+              <Link to="/treino">Ver próxima ficha</Link>
+            </Button>
           ) : (
-            <Button className="flex-1" onClick={finish} disabled={complete.isPending}>{complete.isPending ? "Concluindo..." : "Concluir treino"}</Button>
+            <Button className="flex-1" onClick={finish} disabled={complete.isPending}>
+              {complete.isPending ? "Concluindo..." : "Concluir treino"}
+            </Button>
           )}
           <Button asChild variant="outline" size="icon" aria-label="Ver treino">
-            <Link to="/treino"><ChevronRight className="h-4 w-4" /></Link>
+            <Link to="/treino">
+              <ChevronRight className="h-4 w-4" />
+            </Link>
           </Button>
         </div>
       </div>

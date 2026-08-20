@@ -786,6 +786,7 @@ export type Database = {
           training_days: number | null;
           training_duration_min: number | null;
           training_time: string | null;
+          training_weekdays: number[] | null;
           training_place: string | null;
           updated_at: string;
           user_id: string;
@@ -824,6 +825,7 @@ export type Database = {
           training_days?: number | null;
           training_duration_min?: number | null;
           training_time?: string | null;
+          training_weekdays?: number[] | null;
           training_place?: string | null;
           updated_at?: string;
           user_id: string;
@@ -862,6 +864,7 @@ export type Database = {
           training_days?: number | null;
           training_duration_min?: number | null;
           training_time?: string | null;
+          training_weekdays?: number[] | null;
           training_place?: string | null;
           updated_at?: string;
           user_id?: string;
@@ -1073,10 +1076,13 @@ export type Database = {
       workout_plans: {
         Row: {
           created_at: string;
+          current_cycle_position: number;
+          cycle_length: number;
           days_per_week: number;
           duration_min: number;
           id: string;
           is_active: boolean;
+          last_completed_at: string | null;
           name: string;
           place: string | null;
           split_type: string;
@@ -1085,10 +1091,13 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          current_cycle_position?: number;
+          cycle_length?: number;
           days_per_week?: number;
           duration_min?: number;
           id?: string;
           is_active?: boolean;
+          last_completed_at?: string | null;
           name?: string;
           place?: string | null;
           split_type?: string;
@@ -1097,10 +1106,13 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          current_cycle_position?: number;
+          cycle_length?: number;
           days_per_week?: number;
           duration_min?: number;
           id?: string;
           is_active?: boolean;
+          last_completed_at?: string | null;
           name?: string;
           place?: string | null;
           split_type?: string;
@@ -1163,6 +1175,7 @@ export type Database = {
         Row: {
           avg_difficulty: number | null;
           created_at: string;
+          cycle_position: number | null;
           duration_min: number | null;
           finished_at: string | null;
           had_pain: boolean | null;
@@ -1172,11 +1185,13 @@ export type Database = {
           total_volume: number | null;
           user_id: string;
           workout_id: string | null;
+          workout_plan_id: string | null;
           workout_name: string | null;
         };
         Insert: {
           avg_difficulty?: number | null;
           created_at?: string;
+          cycle_position?: number | null;
           duration_min?: number | null;
           finished_at?: string | null;
           had_pain?: boolean | null;
@@ -1186,11 +1201,13 @@ export type Database = {
           total_volume?: number | null;
           user_id: string;
           workout_id?: string | null;
+          workout_plan_id?: string | null;
           workout_name?: string | null;
         };
         Update: {
           avg_difficulty?: number | null;
           created_at?: string;
+          cycle_position?: number | null;
           duration_min?: number | null;
           finished_at?: string | null;
           had_pain?: boolean | null;
@@ -1200,6 +1217,7 @@ export type Database = {
           total_volume?: number | null;
           user_id?: string;
           workout_id?: string | null;
+          workout_plan_id?: string | null;
           workout_name?: string | null;
         };
         Relationships: [
@@ -1215,6 +1233,7 @@ export type Database = {
       workouts: {
         Row: {
           created_at: string;
+          cycle_position: number | null;
           estimated_min: number | null;
           id: string;
           muscle_groups: string | null;
@@ -1226,6 +1245,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          cycle_position?: number | null;
           estimated_min?: number | null;
           id?: string;
           muscle_groups?: string | null;
@@ -1237,6 +1257,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          cycle_position?: number | null;
           estimated_min?: number | null;
           id?: string;
           muscle_groups?: string | null;
@@ -1264,6 +1285,13 @@ export type Database = {
       admin_engagement_dashboard: {
         Args: {
           p_days_back?: number;
+        };
+        Returns: Json;
+      };
+      complete_workout_cycle: {
+        Args: {
+          p_duration_min?: number;
+          p_workout_id: string;
         };
         Returns: Json;
       };

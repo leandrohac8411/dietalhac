@@ -770,20 +770,18 @@ export function useCompleteWorkout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (workout: { id: string; name: string; estimated_min: number | null }) => {
-      const uid = await requireUserId();
-      const finishedAt = new Date();
-      const startedAt = new Date(finishedAt.getTime() - (workout.estimated_min ?? 60) * 60_000);
-      const { error } = await supabase.from("workout_sessions").insert({
-        user_id: uid,
-        workout_id: workout.id,
-        workout_name: workout.name,
-        started_at: startedAt.toISOString(),
-        finished_at: finishedAt.toISOString(),
-        duration_min: workout.estimated_min ?? 60,
+      await requireUserId();
+      const { data, error } = await supabase.rpc("complete_workout_cycle", {
+        p_workout_id: workout.id,
+        p_duration_min: workout.estimated_min ?? 60,
       });
       if (error) throw error;
+      return data;
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutSessions"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["workoutSessions"] });
+      void qc.invalidateQueries({ queryKey: ["workoutPlan"] });
+    },
   });
 }
 
@@ -1317,11 +1315,22 @@ export function useGenerateWorkout() {
 
       const { data: exercises, error: eErr } = await supabase
         .from("exercises")
-        .select("id,name,muscle_group,place,difficulty,alternative_name")
+        .select("id,name,muscle_group,place,difficulty,alternative_name,media_url")
         .eq("is_active", true);
       if (eErr) throw eErr;
       if (!exercises || exercises.length === 0)
         throw new Error("Catálogo de exercícios vazio. Aplique o seed do banco antes de gerar.");
+
+      const { data: activePlan } = await supabase
+        .from("workout_plans")
+        .select("workouts(workout_exercises(exercise_name))")
+        .eq("user_id", uid)
+        .eq("is_active", true)
+        .maybeSingle();
+      const previousExerciseNames =
+        activePlan?.workouts.flatMap((workout) =>
+          workout.workout_exercises.map((exercise) => exercise.exercise_name),
+        ) ?? [];
 
       const place = prefs?.training_place ?? "gym";
       const days = prefs?.training_days ?? 3;
@@ -1338,6 +1347,7 @@ export function useGenerateWorkout() {
         priorityAreas: goal?.priority_areas ?? null,
         priorityLevel: goal?.priority_level ?? null,
         splitPreference: prefs?.workout_split_preference ?? "auto",
+        previousExerciseNames,
       });
 
       await supabase
@@ -1356,6 +1366,8 @@ export function useGenerateWorkout() {
           duration_min: durationMin,
           place,
           is_active: true,
+          current_cycle_position: 0,
+          cycle_length: workouts.length,
         })
         .select("id")
         .single();
@@ -1372,6 +1384,7 @@ export function useGenerateWorkout() {
             weekday: w.weekday,
             estimated_min: w.estimated_min,
             sort_order: i,
+            cycle_position: i,
           })),
         )
         .select("id, sort_order");
@@ -1488,13 +1501,13 @@ export function useRegenerateWorkoutDay() {
 
       const { data: exercises, error: eErr } = await supabase
         .from("exercises")
-        .select("id,name,muscle_group,place,difficulty,alternative_name")
+        .select("id,name,muscle_group,place,difficulty,alternative_name,media_url")
         .eq("is_active", true);
       if (eErr) throw eErr;
 
       const { data: currentWorkout } = await supabase
         .from("workouts")
-        .select("name")
+        .select("name,workout_exercises(exercise_name)")
         .eq("id", workoutId)
         .maybeSingle();
       const prefix = currentWorkout?.name?.split("—")[0]?.trim() || "Treino";
@@ -1506,6 +1519,8 @@ export function useRegenerateWorkoutDay() {
         durationMin,
         place: prefs?.training_place ?? "gym",
         goal: goal?.goal_type ?? "condicionamento",
+        avoidedNames:
+          currentWorkout?.workout_exercises.map((exercise) => exercise.exercise_name) ?? [],
       });
       if (newExercises.length === 0)
         throw new Error("Nenhum exercício encontrado para esse grupo muscular.");

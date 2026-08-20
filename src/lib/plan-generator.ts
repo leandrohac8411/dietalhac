@@ -853,7 +853,7 @@ export type PlanWorkoutExercise = {
 export type PlanWorkout = {
   name: string;
   muscle_groups: string;
-  weekday: number;
+  weekday: number | null;
   estimated_min: number;
   exercises: PlanWorkoutExercise[];
 };
@@ -863,6 +863,7 @@ export const SPLIT_LABELS: Record<string, string> = {
   ab: "Treino AB",
   abc: "Treino ABC",
   abcd: "Treino ABCD",
+  isolated_5: "5 dias por grupos",
   upper_lower: "Superior e Inferior",
   home: "Treino em casa",
   feminino: "Foco em pernas e glúteos",
@@ -882,7 +883,60 @@ export type ExerciseRow = {
   place: string | null;
   difficulty: string | null;
   alternative_name: string | null;
+  media_url?: string | null;
 };
+
+function shuffled<T>(items: T[]): T[] {
+  return [...items]
+    .map((item) => ({ item, order: Math.random() }))
+    .sort((a, b) => a.order - b.order)
+    .map(({ item }) => item);
+}
+
+/** Distribui as vagas entre os grupos, evitando que o primeiro grupo ocupe
+ *  toda a ficha. Exercícios do plano anterior só voltam quando o catálogo não
+ *  oferece alternativas suficientes. */
+function pickExercisesByGroup(params: {
+  pool: ExerciseRow[];
+  groups: string[];
+  limit: number;
+  avoidedNames?: Set<string>;
+  usedNames?: Set<string>;
+  preferredNames?: string[];
+  place?: string;
+}): ExerciseRow[] {
+  const avoided = params.avoidedNames ?? new Set<string>();
+  const used = params.usedNames ?? new Set<string>();
+  const preferred = new Map((params.preferredNames ?? []).map((name, index) => [name, index]));
+  const rank = (exercise: ExerciseRow) => preferred.get(exercise.name) ?? 999;
+  const placeRank = (exercise: ExerciseRow) =>
+    params.place === "gym" ? (exercise.place === "gym" ? 0 : 1) : 0;
+  const mediaRank = (exercise: ExerciseRow) => (exercise.media_url ? 0 : 1);
+  const buckets = params.groups.map((group) =>
+    shuffled(params.pool.filter((exercise) => exercise.muscle_group === group)).sort(
+      (a, b) =>
+        mediaRank(a) - mediaRank(b) ||
+        placeRank(a) - placeRank(b) ||
+        Number(avoided.has(a.name)) - Number(avoided.has(b.name)) ||
+        Number(used.has(a.name)) - Number(used.has(b.name)) ||
+        rank(a) - rank(b),
+    ),
+  );
+  const selected: ExerciseRow[] = [];
+
+  while (selected.length < params.limit && buckets.some((bucket) => bucket.length > 0)) {
+    for (const bucket of buckets) {
+      const next = bucket.find((exercise) => !selected.some((item) => item.id === exercise.id));
+      if (!next) continue;
+      bucket.splice(bucket.indexOf(next), 1);
+      selected.push(next);
+      used.add(next.name);
+      if (selected.length >= params.limit) break;
+    }
+  }
+
+  return selected;
+}
 
 // Grupos musculares disponíveis para montar/trocar um treino manualmente.
 export const MUSCLE_GROUP_LABELS: Record<string, string> = {
@@ -911,22 +965,26 @@ export function buildWorkoutExercises(params: {
   durationMin: number;
   place: string;
   goal: string;
+  avoidedNames?: string[];
 }): PlanWorkoutExercise[] {
   const home = params.place === "home" || params.place === "outdoor";
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
   const maxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
 
-  return params.groups
-    .flatMap((g) => pool.filter((e) => e.muscle_group === g))
-    .slice(0, maxEx)
-    .map<PlanWorkoutExercise>((e) => ({
-      exercise_name: e.name,
-      sets: params.goal === "forca" ? 4 : 3,
-      reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
-      rest_seconds: params.goal === "forca" ? 150 : 60,
-      difficulty: e.difficulty ?? "iniciante",
-      alternative_name: e.alternative_name ?? undefined,
-    }));
+  return pickExercisesByGroup({
+    pool,
+    groups: params.groups,
+    limit: maxEx,
+    avoidedNames: new Set(params.avoidedNames ?? []),
+    place: params.place,
+  }).map<PlanWorkoutExercise>((e) => ({
+    exercise_name: e.name,
+    sets: params.goal === "forca" ? 4 : 3,
+    reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
+    rest_seconds: params.goal === "forca" ? 150 : 60,
+    difficulty: e.difficulty ?? "iniciante",
+    alternative_name: e.alternative_name ?? undefined,
+  }));
 }
 
 type Blueprint = { name: string; groups: string[]; label: string };
@@ -940,6 +998,53 @@ const PRIORITY_TO_GROUPS: Record<string, string[]> = {
   costas: ["costas"],
   peito: ["peito"],
   ombros: ["ombros"],
+};
+
+const WORKOUT_EXERCISE_PRIORITIES: Record<string, string[]> = {
+  "Peito e tríceps": [
+    "Supino reto com barra",
+    "Supino inclinado com halteres",
+    "Crucifixo na máquina",
+    "Crossover na polia",
+    "Tríceps corda na polia",
+    "Tríceps francês com halter",
+    "Tríceps testa",
+  ],
+  "Costas e bíceps": [
+    "Remada curvada com barra",
+    "Remada baixa na polia",
+    "Puxada frontal",
+    "Puxada aberta na polia",
+    "Rosca Scott",
+    "Rosca martelo",
+    "Rosca direta com barra",
+  ],
+  "Pernas completas": [
+    "Agachamento hack",
+    "Agachamento livre",
+    "Cadeira extensora",
+    "Mesa flexora",
+    "Cadeira flexora",
+    "Leg press",
+    "Cadeira adutora",
+    "Panturrilha em pé",
+  ],
+  Ombros: [
+    "Crucifixo inverso na máquina",
+    "Desenvolvimento com halteres",
+    "Elevação lateral",
+    "Elevação frontal com halteres",
+    "Face pull",
+    "Desenvolvimento Arnold",
+  ],
+  "Bíceps e tríceps": [
+    "Tríceps corda na polia",
+    "Tríceps francês com halter",
+    "Tríceps testa",
+    "Rosca direta com barra",
+    "Rosca martelo",
+    "Rosca Scott",
+  ],
 };
 
 const HOME_BLUEPRINTS: Record<number, Blueprint[]> = {
@@ -1287,17 +1392,82 @@ const FEMALE_BLUEPRINTS: Record<number, Blueprint[]> = {
   ],
 };
 
-const SPLIT_PREFERENCE_DAYS: Record<string, number> = { ab: 2, abc: 3, abcd: 4 };
+const ISOLATED_5_BLUEPRINTS: Blueprint[] = [
+  {
+    name: "Treino A — Peito e tríceps",
+    groups: ["peito", "triceps"],
+    label: "Peito e tríceps",
+  },
+  {
+    name: "Treino B — Costas e bíceps",
+    groups: ["costas", "biceps"],
+    label: "Costas e bíceps",
+  },
+  {
+    name: "Treino C — Pernas completas",
+    groups: ["pernas", "posterior", "gluteos", "adutor", "panturrilha"],
+    label: "Pernas completas",
+  },
+  {
+    name: "Treino D — Ombros",
+    groups: ["ombros"],
+    label: "Ombros",
+  },
+  {
+    name: "Treino E — Bíceps e tríceps",
+    groups: ["biceps", "triceps"],
+    label: "Bíceps e tríceps",
+  },
+];
+
+const SPLIT_PREFERENCE_DAYS: Record<string, number> = {
+  ab: 2,
+  abc: 3,
+  abcd: 4,
+  isolated_5: 5,
+};
+
+function isolatedBlueprints(priorityAreas?: string[] | null): Blueprint[] {
+  const result = ISOLATED_5_BLUEPRINTS.map((blueprint) => ({
+    ...blueprint,
+    groups: [...blueprint.groups],
+  }));
+  const priorities = new Set(priorityAreas ?? []);
+  const fifth = result[4]!;
+
+  if (priorities.has("gluteos") || priorities.has("pernas")) {
+    fifth.name = "Treino E — Glúteos e posterior";
+    fifth.groups = ["gluteos", "posterior", "abdutor", "panturrilha"];
+    fifth.label = "Glúteos e posterior";
+  } else if (priorities.has("peito")) {
+    fifth.name = "Treino E — Peito e braços";
+    fifth.groups = ["peito", "biceps", "triceps"];
+    fifth.label = "Peito e braços";
+  } else if (priorities.has("costas")) {
+    fifth.name = "Treino E — Costas e braços";
+    fifth.groups = ["costas", "biceps", "triceps"];
+    fifth.label = "Costas e braços";
+  } else if (priorities.has("ombros")) {
+    fifth.name = "Treino E — Ombros e braços";
+    fifth.groups = ["ombros", "biceps", "triceps"];
+    fifth.label = "Ombros e braços";
+  }
+
+  return result;
+}
 
 function pickBlueprint(
   days: number,
   sex: string | null | undefined,
   home: boolean,
   splitPreference?: string | null,
+  priorityAreas?: string[] | null,
 ): Blueprint[] {
   const d = clampDays(days);
   if (home) return HOME_BLUEPRINTS[Math.min(d, 3)] ?? HOME_BLUEPRINTS[3]!;
   const table = sex === "feminino" ? FEMALE_BLUEPRINTS : MALE_BLUEPRINTS;
+
+  if (splitPreference === "isolated_5") return isolatedBlueprints(priorityAreas);
 
   // Com um estilo explícito (AB/ABC/ABCD), o split escolhido cicla (A,B,C,A,B,C...)
   // independente de quantos dias por semana a pessoa treina, em vez de ganhar um
@@ -1326,12 +1496,17 @@ export function generateWorkoutPlan(params: {
   priorityAreas?: string[] | null;
   priorityLevel?: string | null;
   splitPreference?: string | null;
+  previousExerciseNames?: string[];
 }): { split: string; workouts: PlanWorkout[] } {
   const home = params.place === "home" || params.place === "outdoor";
   const days = clampDays(params.days);
-  const blueprints = pickBlueprint(days, params.sex, home, params.splitPreference).map((bp) => ({
-    ...bp,
-  }));
+  const blueprints = pickBlueprint(
+    days,
+    params.sex,
+    home,
+    params.splitPreference,
+    params.priorityAreas,
+  ).map((bp) => ({ ...bp }));
   const explicitSplit =
     params.splitPreference && params.splitPreference in SPLIT_PREFERENCE_DAYS
       ? params.splitPreference
@@ -1341,7 +1516,14 @@ export function generateWorkoutPlan(params: {
     (home ? "home" : params.sex === "feminino" ? "feminino" : chooseSplit(days, params.experience));
 
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
-  const baseMaxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
+  const baseMaxEx =
+    explicitSplit === "isolated_5"
+      ? Math.min(6, params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 6)
+      : params.durationMin <= 30
+        ? 4
+        : params.durationMin <= 45
+          ? 5
+          : 7;
 
   // Ênfase: expande as áreas de prioridade para muscle_group. Se o foco não é
   // "balanced", garante que pelo menos metade dos dias da semana toquem a
@@ -1351,7 +1533,12 @@ export function generateWorkoutPlan(params: {
   const priorityGroups = [
     ...new Set((params.priorityAreas ?? []).flatMap((a) => PRIORITY_TO_GROUPS[a] ?? [])),
   ];
-  if (priorityGroups.length > 0 && params.priorityLevel && params.priorityLevel !== "balanced") {
+  if (
+    explicitSplit !== "isolated_5" &&
+    priorityGroups.length > 0 &&
+    params.priorityLevel &&
+    params.priorityLevel !== "balanced"
+  ) {
     const emphasisLabel = priorityGroups.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(" e ");
     const wantedCoverage = Math.max(1, Math.ceil((blueprints.length * 2) / 3));
     let covered = blueprints.filter((bp) =>
@@ -1371,33 +1558,44 @@ export function generateWorkoutPlan(params: {
     }
   }
 
-  const byGroup = (groups: string[], limit: number) =>
-    groups
-      .flatMap((g) => pool.filter((e) => e.muscle_group === g))
-      .slice(0, limit)
-      .map<PlanWorkoutExercise>((e) => ({
-        exercise_name: e.name,
-        sets: params.goal === "forca" ? 4 : 3,
-        reps:
-          params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
-        rest_seconds: params.goal === "forca" ? 150 : 60,
-        difficulty: e.difficulty ?? "iniciante",
-        alternative_name: e.alternative_name ?? undefined,
-      }));
+  const previousExerciseNames = new Set(params.previousExerciseNames ?? []);
+  const usedExerciseNames = new Set<string>();
+  const byGroup = (groups: string[], limit: number, label: string) =>
+    pickExercisesByGroup({
+      pool,
+      groups,
+      limit,
+      avoidedNames: previousExerciseNames,
+      usedNames: usedExerciseNames,
+      preferredNames: WORKOUT_EXERCISE_PRIORITIES[label],
+      place: params.place,
+    }).map<PlanWorkoutExercise>((e) => ({
+      exercise_name: e.name,
+      sets: params.goal === "forca" ? 4 : 3,
+      reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
+      rest_seconds: params.goal === "forca" ? 150 : 60,
+      difficulty: e.difficulty ?? "iniciante",
+      alternative_name: e.alternative_name ?? undefined,
+    }));
 
   const workouts: PlanWorkout[] = [];
-  const weekdays = [1, 2, 3, 4, 5, 6, 0];
   const cardioPool = pool.filter((e) => e.muscle_group === "cardio");
+  // Divisões explícitas são ciclos de fichas, não cópias presas a cada dia da semana.
+  // Ex.: ABC com cinco sessões gera apenas A, B e C; a conclusão das sessões
+  // produz A-B-C-A-B / C-A-B-C-A continuamente.
+  const cycleSize = explicitSplit ? blueprints.length : days;
 
-  for (let i = 0; i < days; i += 1) {
+  for (let i = 0; i < cycleSize; i += 1) {
     const bp = blueprints[i % blueprints.length]!;
     const hasPriority = bp.groups.some((g) => priorityGroups.includes(g));
-    const maxEx = hasPriority ? baseMaxEx + 1 : baseMaxEx;
-    const exs = byGroup(bp.groups, maxEx);
+    const referenceLimit = explicitSplit === "isolated_5" && bp.label === "Ombros" ? 4 : baseMaxEx;
+    const maxEx =
+      hasPriority && explicitSplit !== "isolated_5" ? referenceLimit + 1 : referenceLimit;
+    const exs = byGroup(bp.groups, maxEx, bp.label);
 
     // Finaliza todo treino de musculação com um cardio curto, como no treino de
     // referência do usuário — dias que já são de cárdio puro não repetem.
-    if (!bp.groups.includes("cardio") && cardioPool.length > 0) {
+    if (explicitSplit !== "isolated_5" && !bp.groups.includes("cardio") && cardioPool.length > 0) {
       const c = cardioPool[i % cardioPool.length]!;
       exs.push({
         exercise_name: c.name,
@@ -1412,7 +1610,7 @@ export function generateWorkoutPlan(params: {
     workouts.push({
       name: bp.name,
       muscle_groups: bp.label,
-      weekday: weekdays[i] ?? 1,
+      weekday: null,
       estimated_min: params.durationMin,
       exercises: exs,
     });
