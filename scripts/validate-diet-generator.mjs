@@ -145,6 +145,11 @@ const contextualPlan = generateMealPlan({
 assert.match(contextualPlan[0].name, /pré-treino/);
 assert.match(contextualPlan[1].name, /pós-treino/);
 assert.ok(contextualPlan[0].items.some((item) => /whey/i.test(item.food_name)));
+const mainDishPattern = /arroz|feij[aã]o|lentilha|macarr[aã]o|mandioca|batata|inhame/i;
+assert.ok(
+  contextualPlan[1].items.every((item) => !mainDishPattern.test(item.food_name)),
+  "Lanche pós-treino não deve virar almoço.",
+);
 assert.ok(
   contextualPlan
     .flatMap((entry) => entry.items)
@@ -168,6 +173,21 @@ assert.ok(
   alternatives.every((option) =>
     option.items.some((item) => ["proteina", "peixe", "ovo"].includes(item.category)),
   ),
+);
+
+const postWorkoutAlternatives = generateMealAlternatives({
+  foods,
+  mealName: contextualPlan[1].name,
+  scheduledTime: contextualPlan[1].scheduled_time,
+  currentItems: contextualPlan[1].items,
+  count: 4,
+});
+assert.ok(postWorkoutAlternatives.length >= 1);
+assert.ok(
+  postWorkoutAlternatives.every((option) =>
+    option.items.every((item) => !mainDishPattern.test(item.food_name)),
+  ),
+  "Alternativas de lanche pós-treino não devem conter carboidratos de almoço.",
 );
 
 console.log(

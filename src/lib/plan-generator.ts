@@ -204,7 +204,7 @@ function prep(category: string): string | undefined {
   }
 }
 
-type Slot = { cats: string[]; prefer?: string[] };
+type Slot = { cats: string[]; prefer?: string[]; only?: string[] };
 
 const NATURAL_COMBOS: Record<string, string[][]> = {
   "Café da manhã": [
@@ -280,11 +280,26 @@ function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
       { cats: ["carboidrato", "fruta"], prefer: ["Banana", "Pão", "Tapioca", "Aveia"] },
       { cats: ["laticinio", "proteina", "ovo"], prefer: ["Whey", "Iogurte", "Peito de peru"] },
     ];
-  if (role === "post_workout")
+  if (role === "post_workout") {
+    const isSnack = ["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(name);
+    if (isSnack)
+      return [
+        {
+          cats: ["laticinio", "proteina", "ovo"],
+          prefer: ["Whey", "Iogurte", "Skyr", "Ovo", "Cottage", "Frango desfiado"],
+          only: ["Whey", "Iogurte", "Skyr", "Ovo", "Cottage", "Frango desfiado"],
+        },
+        {
+          cats: ["carboidrato", "fruta"],
+          prefer: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Tapioca", "Cuscuz"],
+          only: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Tapioca", "Cuscuz"],
+        },
+      ];
     return [
       { cats: ["laticinio", "proteina", "peixe", "ovo"], prefer: ["Whey", "Iogurte", "Frango"] },
       { cats: ["carboidrato", "fruta"], prefer: ["Arroz", "Batata", "Mandioca", "Banana"] },
     ];
+  }
   switch (name) {
     case "Café da manhã":
       return lowCarb
@@ -351,7 +366,11 @@ function makePicker(
   const liked = preferenceTokens(likedFoods);
   const supplementNames = preferenceTokens(supplements);
   return (slot: Slot): FoodRow | undefined => {
-    const candidates = pool.filter((f) => slot.cats.includes(f.category));
+    const candidates = pool.filter(
+      (food) =>
+        slot.cats.includes(food.category) &&
+        (!slot.only || slot.only.some((name) => food.name.includes(name))),
+    );
     if (candidates.length === 0) return undefined;
     const rank = (f: FoodRow) => {
       const preferred = slot.prefer && slot.prefer.some((p) => f.name.includes(p)) ? 0 : 1;
@@ -710,6 +729,25 @@ function hasBreadWithoutFilling(meal: PlanMeal): boolean {
   return !names.some((name) => fillings.some((filling) => name.includes(filling)));
 }
 
+function hasMainDishCarbInSnack(meal: PlanMeal): boolean {
+  const baseName = meal.name.replace(/ \((?:pré|pós)-treino\)$/i, "");
+  if (!["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(baseName)) return false;
+  const mainDishNames = [
+    "arroz",
+    "feijao",
+    "lentilha",
+    "macarrao",
+    "mandioca",
+    "batata",
+    "inhame",
+    "cará",
+  ];
+  return meal.items.some((item) => {
+    const name = deburr(item.food_name.toLowerCase());
+    return mainDishNames.some((mainDish) => name.includes(deburr(mainDish)));
+  });
+}
+
 /** Penaliza planos que fecham a matemática, mas não se parecem com refeições
  * reais. A nota complementa o desvio de macros na escolha entre candidatos. */
 export function mealPlanNaturalnessPenalty(plan: PlanMeal[]): number {
@@ -752,6 +790,7 @@ export function mealPlanNaturalnessPenalty(plan: PlanMeal[]): number {
     if (isBreakfastOrSnack && hasBreadLike && !hasProtein) penalty += 0.9;
     if (isBreakfastOrSnack && hasBreadLike && hasColdCuts && !hasCheese) penalty += 0.75;
     if (hasBreadWithoutFilling(meal)) penalty += 3;
+    if (hasMainDishCarbInSnack(meal)) penalty += 3;
 
     for (const item of meal.items) {
       const key = deburr(item.food_name.toLowerCase());
@@ -802,7 +841,12 @@ export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets):
           name.includes("peru") ||
           name.includes("ovo inteiro"),
       );
-    return mealFat <= fatCeiling && !stacksOmeletFat && !hasBreadWithoutFilling(meal);
+    return (
+      mealFat <= fatCeiling &&
+      !stacksOmeletFat &&
+      !hasBreadWithoutFilling(meal) &&
+      !hasMainDishCarbInSnack(meal)
+    );
   });
   return (
     within(totals.calories, targets.calories, 0.08) &&
@@ -1007,7 +1051,7 @@ export function generateMealAlternatives(params: {
       buildItems,
       current,
     )[0];
-    if (!option || hasBreadWithoutFilling(option)) continue;
+    if (!option || hasBreadWithoutFilling(option) || hasMainDishCarbInSnack(option)) continue;
     candidates.set(signature, {
       ...option,
       deviation: mealPlanDeviation([option], current),
