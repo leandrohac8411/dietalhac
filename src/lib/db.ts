@@ -49,6 +49,26 @@ export type SavedMealComponent = {
   fat_g: number;
 };
 
+function ensureWorkoutSafetyClearance(
+  screening: {
+    heart_condition?: boolean | null;
+    recent_surgery?: boolean | null;
+    persistent_pain?: boolean | null;
+    pregnant?: boolean | null;
+  } | null,
+) {
+  if (
+    screening?.heart_condition ||
+    screening?.recent_surgery ||
+    screening?.persistent_pain ||
+    screening?.pregnant
+  ) {
+    throw new Error(
+      "Sua triagem indica uma condição que exige liberação profissional antes de gerar ou alterar o treino.",
+    );
+  }
+}
+
 async function requireUserId() {
   // Estes hooks rodam no cliente e usam o ID somente como filtro. Chamar
   // getUser() aqui faria uma validação remota para cada consulta da tela
@@ -1376,10 +1396,16 @@ export function useGenerateWorkout() {
         .select("biological_sex")
         .eq("id", uid)
         .maybeSingle();
+      const { data: screening } = await supabase
+        .from("health_screening")
+        .select("heart_condition,recent_surgery,persistent_pain,pregnant")
+        .eq("user_id", uid)
+        .maybeSingle();
+      ensureWorkoutSafetyClearance(screening);
 
       const { data: exercises, error: eErr } = await supabase
         .from("exercises")
-        .select("id,name,muscle_group,place,difficulty,alternative_name,media_url")
+        .select("id,name,muscle_group,equipment,place,difficulty,alternative_name,media_url")
         .eq("is_active", true);
       if (eErr) throw eErr;
       if (!exercises || exercises.length === 0)
@@ -1412,6 +1438,7 @@ export function useGenerateWorkout() {
         priorityLevel: goal?.priority_level ?? null,
         splitPreference: prefs?.workout_split_preference ?? "auto",
         previousExerciseNames,
+        equipment: prefs?.equipment ?? null,
       });
 
       await supabase
@@ -1551,7 +1578,7 @@ export function useRegenerateWorkoutDay() {
 
       const { data: prefs } = await supabase
         .from("user_preferences")
-        .select("training_place")
+        .select("training_place,equipment,experience_level")
         .eq("user_id", uid)
         .maybeSingle();
       const { data: goal } = await supabase
@@ -1562,10 +1589,16 @@ export function useRegenerateWorkoutDay() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      const { data: screening } = await supabase
+        .from("health_screening")
+        .select("heart_condition,recent_surgery,persistent_pain,pregnant")
+        .eq("user_id", uid)
+        .maybeSingle();
+      ensureWorkoutSafetyClearance(screening);
 
       const { data: exercises, error: eErr } = await supabase
         .from("exercises")
-        .select("id,name,muscle_group,place,difficulty,alternative_name,media_url")
+        .select("id,name,muscle_group,equipment,place,difficulty,alternative_name,media_url")
         .eq("is_active", true);
       if (eErr) throw eErr;
 
@@ -1583,6 +1616,8 @@ export function useRegenerateWorkoutDay() {
         durationMin,
         place: prefs?.training_place ?? "gym",
         goal: goal?.goal_type ?? "condicionamento",
+        equipment: prefs?.equipment ?? null,
+        experience: prefs?.experience_level ?? null,
         avoidedNames:
           currentWorkout?.workout_exercises.map((exercise) => exercise.exercise_name) ?? [],
       });

@@ -61,6 +61,7 @@ const catalog = [
   ["posterior-novo", "posterior"],
   ["gluteos-novo", "gluteos"],
   ["panturrilha-novo", "panturrilha"],
+  ["Bike ergométrica", "cardio"],
 ].map(([name, muscle_group], index) => ({
   id: String(index),
   name,
@@ -70,6 +71,47 @@ const catalog = [
   alternative_name: null,
   media_url: "https://example.test/exercise.mp4",
 }));
+
+function weeklyDirectVolume(program, days, group, sourceCatalog) {
+  const groupByName = new Map(
+    sourceCatalog.map((exercise) => [exercise.name, exercise.muscle_group]),
+  );
+  const cycleLength = program.workouts.length;
+  return program.workouts.reduce((total, workout, index) => {
+    const frequency = Math.floor(days / cycleLength) + (index < days % cycleLength ? 1 : 0);
+    const sessionSets = workout.exercises
+      .filter((exercise) => groupByName.get(exercise.exercise_name) === group)
+      .reduce((sum, exercise) => sum + exercise.sets, 0);
+    return total + sessionSets * frequency;
+  }, 0);
+}
+
+function assertMuscleBlocks(program, sourceCatalog) {
+  const groupByName = new Map(
+    sourceCatalog.map((exercise) => [exercise.name, exercise.muscle_group]),
+  );
+  for (const workout of program.workouts) {
+    const groups = workout.exercises.map(
+      (exercise) => groupByName.get(exercise.exercise_name) ?? "cardio",
+    );
+    const completed = new Set();
+    let current = groups[0];
+    for (const group of groups.slice(1)) {
+      if (group === current) continue;
+      completed.add(current);
+      assert.ok(
+        !completed.has(group),
+        `${workout.name} voltou ao grupo ${group} depois de iniciar outro grupo.`,
+      );
+      current = group;
+    }
+    const cardioIndex = groups.indexOf("cardio");
+    assert.ok(
+      cardioIndex === -1 || cardioIndex === groups.length - 1,
+      `${workout.name} deve deixar o cardio no final.`,
+    );
+  }
+}
 const regenerated = generateWorkoutPlan({
   exercises: catalog,
   days: 3,
@@ -81,10 +123,11 @@ const regenerated = generateWorkoutPlan({
   previousExerciseNames: ["peito-antigo", "ombro-antigo"],
 });
 const firstNames = regenerated.workouts[0].exercises.map((exercise) => exercise.exercise_name);
-assert.ok(firstNames.includes("peito-novo"));
-assert.ok(firstNames.includes("ombro-novo"));
+assert.ok(firstNames.some((name) => name.startsWith("peito-novo")));
+assert.ok(firstNames.some((name) => name.startsWith("ombro-novo")));
 assert.ok(!firstNames.includes("peito-antigo"));
 assert.ok(!firstNames.includes("ombro-antigo"));
+assertMuscleBlocks(regenerated, catalog);
 
 const isolatedCatalogGroups = [
   "peito",
@@ -142,6 +185,7 @@ assert.deepEqual(
   isolated.workouts.map((workout) => workout.exercises.length),
   [6, 6, 6, 4, 6],
 );
+assertMuscleBlocks(isolated, isolatedCatalog);
 
 const isolatedLowerFocus = generateWorkoutPlan({
   exercises: isolatedCatalog,
@@ -154,6 +198,81 @@ const isolatedLowerFocus = generateWorkoutPlan({
 });
 assert.equal(isolatedLowerFocus.workouts[4].muscle_groups, "Glúteos e posterior");
 
+const balancedChest = generateWorkoutPlan({
+  exercises: isolatedCatalog,
+  days: 5,
+  durationMin: 60,
+  place: "gym",
+  experience: "intermediario",
+  goal: "ganhar_massa",
+  sex: "masculino",
+  splitPreference: "abc",
+  priorityAreas: [],
+  priorityLevel: "balanced",
+});
+const focusedChest = generateWorkoutPlan({
+  exercises: isolatedCatalog,
+  days: 5,
+  durationMin: 60,
+  place: "gym",
+  experience: "intermediario",
+  goal: "ganhar_massa",
+  sex: "masculino",
+  splitPreference: "abc",
+  priorityAreas: ["peito"],
+  priorityLevel: "muscle",
+});
+assert.ok(
+  weeklyDirectVolume(focusedChest, 5, "peito", isolatedCatalog) >
+    weeklyDirectVolume(balancedChest, 5, "peito", isolatedCatalog),
+  "Ênfase em peito deve aumentar o volume semanal direto de peito.",
+);
+const focusedGlutesAB = generateWorkoutPlan({
+  exercises: isolatedCatalog,
+  days: 4,
+  durationMin: 60,
+  place: "gym",
+  experience: "intermediario",
+  goal: "ganhar_massa",
+  sex: "feminino",
+  splitPreference: "ab",
+  priorityAreas: ["gluteos", "pernas"],
+  priorityLevel: "muscle",
+});
+assert.equal(focusedGlutesAB.workouts.length, 2);
+assert.ok(
+  focusedGlutesAB.workouts.every((workout) =>
+    workout.exercises.some((exercise) =>
+      ["gluteos", "posterior"].includes(
+        new Map(isolatedCatalog.map((item) => [item.name, item.muscle_group])).get(
+          exercise.exercise_name,
+        ),
+      ),
+    ),
+  ),
+  "AB com ênfase inferior deve tocar glúteos/posterior nas duas fichas sem apagar o tronco.",
+);
+assertMuscleBlocks(focusedGlutesAB, isolatedCatalog);
+
+const fatLoss = generateWorkoutPlan({
+  exercises: catalog,
+  days: 3,
+  durationMin: 60,
+  place: "gym",
+  experience: "iniciante",
+  goal: "emagrecer",
+  sex: "masculino",
+});
+assert.ok(
+  fatLoss.workouts.every((workout) =>
+    workout.exercises.some(
+      (exercise) => exercise.exercise_name === "Bike ergométrica" && exercise.reps === "15-20 min",
+    ),
+  ),
+  "Emagrecimento deve preservar musculação e acrescentar condicionamento cardiovascular.",
+);
+assertMuscleBlocks(fatLoss, catalog);
+
 console.log(
-  "Treinos validados: ciclo contínuo, regeneração variada e divisão de 5 dias adaptativa.",
+  "Treinos validados: ciclo, blocos musculares, volume semanal, prioridades, AB inferior e emagrecimento.",
 );

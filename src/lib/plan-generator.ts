@@ -1107,11 +1107,73 @@ export type ExerciseRow = {
   id: string;
   name: string;
   muscle_group: string;
+  equipment?: string | null;
   place: string | null;
   difficulty: string | null;
   alternative_name: string | null;
   media_url?: string | null;
 };
+
+type MovementPattern =
+  | "horizontal_push"
+  | "vertical_push"
+  | "horizontal_pull"
+  | "vertical_pull"
+  | "squat"
+  | "hip_hinge"
+  | "knee_flexion"
+  | "isolation"
+  | "core"
+  | "cardio";
+
+function movementPattern(exercise: ExerciseRow): MovementPattern {
+  const name = deburr(exercise.name.toLowerCase());
+  if (exercise.muscle_group === "cardio") return "cardio";
+  if (exercise.muscle_group === "abdomen" || exercise.muscle_group === "lombar") return "core";
+  if (/supino|flexao de braco|crucifixo|crossover|peck/.test(name)) return "horizontal_push";
+  if (/desenvolvimento|militar|pike/.test(name)) return "vertical_push";
+  if (/remada/.test(name)) return "horizontal_pull";
+  if (/puxada|barra fixa|pulldown/.test(name)) return "vertical_pull";
+  if (/stiff|terra|good morning|elevacao pelvica|hip thrust|ponte/.test(name)) return "hip_hinge";
+  if (/flexora|nordica/.test(name)) return "knee_flexion";
+  if (/agachamento|leg press|afundo|passada|extensora|hack/.test(name)) return "squat";
+  return "isolation";
+}
+
+function equipmentMatches(exercise: ExerciseRow, available?: string[] | null): boolean {
+  if (!available || available.length === 0) return true;
+  const equipment = deburr((exercise.equipment ?? "").toLowerCase());
+  const name = deburr(exercise.name.toLowerCase());
+  if (
+    /peso do corpo|peso corporal|bodyweight/.test(equipment) ||
+    /flexao|prancha|abdominal/.test(name)
+  )
+    return true;
+  const aliases: Record<string, string[]> = {
+    peso_corporal: ["peso corporal", "peso do corpo", "bodyweight"],
+    halteres: ["halter", "dumbbell"],
+    barra: ["barra", "barbell"],
+    elasticos: ["elastico", "faixa"],
+    kettlebell: ["kettlebell"],
+    banco: ["banco", "bench"],
+  };
+  return available.some((key) =>
+    (aliases[key] ?? [deburr(key.toLowerCase())]).some(
+      (alias) => equipment.includes(alias) || name.includes(alias),
+    ),
+  );
+}
+
+function exercisePrescription(goal: string, exercise: ExerciseRow) {
+  const pattern = movementPattern(exercise);
+  const isolated = ["isolation", "core", "knee_flexion"].includes(pattern);
+  if (goal === "forca") return isolated ? { reps: "8-12", rest: 75 } : { reps: "4-6", rest: 150 };
+  if (["ganhar_massa", "ganhar_peso", "recomposicao"].includes(goal))
+    return isolated ? { reps: "10-15", rest: 60 } : { reps: "6-12", rest: 90 };
+  if (["emagrecer", "reduzir_gordura", "condicionamento"].includes(goal))
+    return isolated ? { reps: "12-15", rest: 45 } : { reps: "8-12", rest: 60 };
+  return { reps: "8-12", rest: isolated ? 60 : 75 };
+}
 
 function shuffled<T>(items: T[]): T[] {
   return [...items]
@@ -1131,6 +1193,8 @@ function pickExercisesByGroup(params: {
   usedNames?: Set<string>;
   preferredNames?: string[];
   place?: string;
+  equipment?: string[] | null;
+  experience?: string | null;
 }): ExerciseRow[] {
   const avoided = params.avoidedNames ?? new Set<string>();
   const used = params.usedNames ?? new Set<string>();
@@ -1139,10 +1203,24 @@ function pickExercisesByGroup(params: {
   const placeRank = (exercise: ExerciseRow) =>
     params.place === "gym" ? (exercise.place === "gym" ? 0 : 1) : 0;
   const mediaRank = (exercise: ExerciseRow) => (exercise.media_url ? 0 : 1);
+  const difficultyRank = (exercise: ExerciseRow) => {
+    if (params.experience === "iniciante") return exercise.difficulty === "iniciante" ? 0 : 1;
+    if (params.experience === "intermediario") return exercise.difficulty === "avancado" ? 1 : 0;
+    return 0;
+  };
   const buckets = params.groups.map((group) =>
-    shuffled(params.pool.filter((exercise) => exercise.muscle_group === group)).sort(
+    shuffled(
+      params.pool.filter(
+        (exercise) =>
+          exercise.muscle_group === group &&
+          equipmentMatches(exercise, params.equipment) &&
+          ((params.experience !== "iniciante" && params.experience !== "intermediario") ||
+            exercise.difficulty !== "avancado"),
+      ),
+    ).sort(
       (a, b) =>
         mediaRank(a) - mediaRank(b) ||
+        difficultyRank(a) - difficultyRank(b) ||
         placeRank(a) - placeRank(b) ||
         Number(avoided.has(a.name)) - Number(avoided.has(b.name)) ||
         Number(used.has(a.name)) - Number(used.has(b.name)) ||
@@ -1150,19 +1228,41 @@ function pickExercisesByGroup(params: {
     ),
   );
   const selected: ExerciseRow[] = [];
+  const patternUse = new Map<MovementPattern, number>();
 
   while (selected.length < params.limit && buckets.some((bucket) => bucket.length > 0)) {
     for (const bucket of buckets) {
-      const next = bucket.find((exercise) => !selected.some((item) => item.id === exercise.id));
+      const next = bucket
+        .filter((exercise) => !selected.some((item) => item.id === exercise.id))
+        .sort(
+          (a, b) =>
+            Number(!a.media_url) - Number(!b.media_url) ||
+            (patternUse.get(movementPattern(a)) ?? 0) - (patternUse.get(movementPattern(b)) ?? 0),
+        )[0];
       if (!next) continue;
       bucket.splice(bucket.indexOf(next), 1);
       selected.push(next);
+      const pattern = movementPattern(next);
+      patternUse.set(pattern, (patternUse.get(pattern) ?? 0) + 1);
       used.add(next.name);
       if (selected.length >= params.limit) break;
     }
   }
 
-  return selected;
+  // A seleção acontece em rodízio para dividir corretamente as vagas entre os
+  // grupos. A execução, porém, deve vir em blocos musculares: conclui todos os
+  // exercícios do primeiro grupo antes de iniciar o próximo. Mantemos a ordem
+  // declarada no blueprint e deixamos cardio sempre por último.
+  const groupOrder = new Map(params.groups.map((group, index) => [group, index]));
+  return selected
+    .map((exercise, selectionOrder) => ({ exercise, selectionOrder }))
+    .sort(
+      (a, b) =>
+        (groupOrder.get(a.exercise.muscle_group) ?? params.groups.length) -
+          (groupOrder.get(b.exercise.muscle_group) ?? params.groups.length) ||
+        a.selectionOrder - b.selectionOrder,
+    )
+    .map(({ exercise }) => exercise);
 }
 
 // Grupos musculares disponíveis para montar/trocar um treino manualmente.
@@ -1193,6 +1293,8 @@ export function buildWorkoutExercises(params: {
   place: string;
   goal: string;
   avoidedNames?: string[];
+  equipment?: string[] | null;
+  experience?: string | null;
 }): PlanWorkoutExercise[] {
   const home = params.place === "home" || params.place === "outdoor";
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
@@ -1204,11 +1306,13 @@ export function buildWorkoutExercises(params: {
     limit: maxEx,
     avoidedNames: new Set(params.avoidedNames ?? []),
     place: params.place,
+    equipment: params.equipment,
+    experience: params.experience,
   }).map<PlanWorkoutExercise>((e) => ({
     exercise_name: e.name,
-    sets: params.goal === "forca" ? 4 : 3,
-    reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
-    rest_seconds: params.goal === "forca" ? 150 : 60,
+    sets: 3,
+    reps: exercisePrescription(params.goal, e).reps,
+    rest_seconds: exercisePrescription(params.goal, e).rest,
     difficulty: e.difficulty ?? "iniciante",
     alternative_name: e.alternative_name ?? undefined,
   }));
@@ -1711,6 +1815,71 @@ function clampDays(d: number): number {
   return Math.min(Math.max(Math.round(d), 1), 7);
 }
 
+function applyWeeklyVolume(params: {
+  workouts: PlanWorkout[];
+  pool: ExerciseRow[];
+  days: number;
+  experience?: string | null;
+  goal: string;
+  priorityGroups: string[];
+  priorityLevel?: string | null;
+}): void {
+  const exerciseByName = new Map(params.pool.map((exercise) => [exercise.name, exercise]));
+  const cycleLength = Math.max(1, params.workouts.length);
+  const frequencies = params.workouts.map(
+    (_, index) =>
+      Math.floor(params.days / cycleLength) + (index < params.days % cycleLength ? 1 : 0),
+  );
+  const entries = params.workouts.flatMap((workout, workoutIndex) =>
+    workout.exercises
+      .map((prescription) => ({
+        prescription,
+        exercise: exerciseByName.get(prescription.exercise_name),
+        frequency: frequencies[workoutIndex] ?? 1,
+      }))
+      .filter((entry) => entry.exercise && entry.exercise.muscle_group !== "cardio"),
+  );
+  const groups = [...new Set(entries.map((entry) => entry.exercise!.muscle_group))];
+  const largeGroups = new Set(["peito", "costas", "pernas", "posterior", "gluteos", "ombros"]);
+  const experienceBase =
+    params.experience === "avancado" ? 14 : params.experience === "intermediario" ? 11 : 8;
+  const maxSets = params.goal === "forca" ? 5 : 4;
+
+  for (const group of groups) {
+    const groupEntries = entries.filter((entry) => entry.exercise!.muscle_group === group);
+    if (groupEntries.length === 0) continue;
+    let target = experienceBase + (largeGroups.has(group) ? 1 : -2);
+    if (["ganhar_massa", "ganhar_peso", "recomposicao"].includes(params.goal)) target += 1;
+    if (params.goal === "forca") target -= 1;
+    if (params.priorityLevel === "muscle" && params.priorityGroups.includes(group)) target += 4;
+    target = clampN(target, 4, 20);
+
+    const minDeliverable = groupEntries.reduce((sum, entry) => sum + entry.frequency * 2, 0);
+    const maxDeliverable = groupEntries.reduce((sum, entry) => sum + entry.frequency * maxSets, 0);
+    target = clampN(target, minDeliverable, maxDeliverable);
+    for (const entry of groupEntries) entry.prescription.sets = 2;
+
+    let delivered = minDeliverable;
+    while (delivered < target) {
+      const candidate = groupEntries
+        .filter((entry) => entry.prescription.sets < maxSets)
+        .sort(
+          (a, b) =>
+            Math.abs(delivered + a.frequency - target) -
+              Math.abs(delivered + b.frequency - target) ||
+            a.prescription.sets - b.prescription.sets,
+        )[0];
+      if (
+        !candidate ||
+        Math.abs(delivered + candidate.frequency - target) > Math.abs(delivered - target)
+      )
+        break;
+      candidate.prescription.sets += 1;
+      delivered += candidate.frequency;
+    }
+  }
+}
+
 /** Gera o plano de treino conforme objetivo, experiência, dias, local, sexo e ênfase. */
 export function generateWorkoutPlan(params: {
   exercises: ExerciseRow[];
@@ -1724,6 +1893,7 @@ export function generateWorkoutPlan(params: {
   priorityLevel?: string | null;
   splitPreference?: string | null;
   previousExerciseNames?: string[];
+  equipment?: string[] | null;
 }): { split: string; workouts: PlanWorkout[] } {
   const home = params.place === "home" || params.place === "outdoor";
   const days = clampDays(params.days);
@@ -1743,7 +1913,8 @@ export function generateWorkoutPlan(params: {
     (home ? "home" : params.sex === "feminino" ? "feminino" : chooseSplit(days, params.experience));
 
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
-  const baseMaxEx =
+  const fatLossGoal = ["emagrecer", "reduzir_gordura", "condicionamento"].includes(params.goal);
+  const baseMaxExRaw =
     explicitSplit === "isolated_5"
       ? Math.min(6, params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 6)
       : params.durationMin <= 30
@@ -1751,6 +1922,7 @@ export function generateWorkoutPlan(params: {
         : params.durationMin <= 45
           ? 5
           : 7;
+  const baseMaxEx = fatLossGoal ? Math.max(4, baseMaxExRaw - 1) : baseMaxExRaw;
 
   // Ênfase: expande as áreas de prioridade para muscle_group. Se o foco não é
   // "balanced", garante que pelo menos metade dos dias da semana toquem a
@@ -1763,8 +1935,7 @@ export function generateWorkoutPlan(params: {
   if (
     explicitSplit !== "isolated_5" &&
     priorityGroups.length > 0 &&
-    params.priorityLevel &&
-    params.priorityLevel !== "balanced"
+    params.priorityLevel === "muscle"
   ) {
     const emphasisLabel = priorityGroups.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(" e ");
     const wantedCoverage = Math.max(1, Math.ceil((blueprints.length * 2) / 3));
@@ -1777,9 +1948,12 @@ export function generateWorkoutPlan(params: {
       if (bp.label.includes("Cárdio")) continue;
       const prefix = bp.name.split("—")[0]?.trim() ?? "Treino";
       blueprints[i] = {
-        name: `${prefix} — Ênfase: ${emphasisLabel}`,
-        groups: priorityGroups,
-        label: `Ênfase: ${emphasisLabel}`,
+        name: `${prefix} — ${bp.label} + ênfase`,
+        groups: [
+          ...priorityGroups,
+          ...bp.groups.filter((group) => !priorityGroups.includes(group)),
+        ],
+        label: `${bp.label} + ${emphasisLabel}`,
       };
       covered += 1;
     }
@@ -1796,11 +1970,13 @@ export function generateWorkoutPlan(params: {
       usedNames: usedExerciseNames,
       preferredNames: WORKOUT_EXERCISE_PRIORITIES[label],
       place: params.place,
+      equipment: params.equipment,
+      experience: params.experience,
     }).map<PlanWorkoutExercise>((e) => ({
       exercise_name: e.name,
-      sets: params.goal === "forca" ? 4 : 3,
-      reps: params.goal === "forca" ? "4-6" : params.goal === "condicionamento" ? "15-20" : "8-12",
-      rest_seconds: params.goal === "forca" ? 150 : 60,
+      sets: 3,
+      reps: exercisePrescription(params.goal, e).reps,
+      rest_seconds: exercisePrescription(params.goal, e).rest,
       difficulty: e.difficulty ?? "iniciante",
       alternative_name: e.alternative_name ?? undefined,
     }));
@@ -1827,7 +2003,7 @@ export function generateWorkoutPlan(params: {
       exs.push({
         exercise_name: c.name,
         sets: 1,
-        reps: "12-15 min",
+        reps: fatLossGoal ? "15-20 min" : "8-12 min",
         rest_seconds: 0,
         difficulty: c.difficulty ?? "iniciante",
         alternative_name: c.alternative_name ?? undefined,
@@ -1842,6 +2018,16 @@ export function generateWorkoutPlan(params: {
       exercises: exs,
     });
   }
+
+  applyWeeklyVolume({
+    workouts,
+    pool,
+    days,
+    experience: params.experience,
+    goal: params.goal,
+    priorityGroups,
+    priorityLevel: params.priorityLevel,
+  });
 
   return { split, workouts };
 }
