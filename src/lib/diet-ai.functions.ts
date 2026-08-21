@@ -65,7 +65,7 @@ export const generateNaturalDiet = createServerFn({ method: "POST" })
             {
               role: "system",
               content:
-                "Você organiza refeições brasileiras comuns e apetitosas. Use exclusivamente os IDs fornecidos. Respeite os alimentos preferidos, suplementos, aversões e o contexto de treino recebidos. Refeições marcadas como pré-treino devem ser leves, com carboidrato e proteína; pós-treino deve conter proteína e carboidrato. Pão precisa de recheio; fruta é acompanhamento ou combina com iogurte/aveia; almoço e jantar devem parecer pratos reais. Nunca invente alimentos, macros ou IDs. Evite repetir o mesmo alimento em refeições diferentes.",
+                "Você organiza refeições brasileiras comuns e apetitosas. Use exclusivamente os IDs fornecidos. Respeite os alimentos preferidos, suplementos, aversões e o contexto de treino recebidos. Refeições marcadas como pré-treino devem ser leves, com carboidrato e proteína; pós-treino deve conter proteína e carboidrato. Pão precisa de recheio. Quando usar presunto ou peito de peru com pão, combine com uma porção pequena de queijo, ricota ou cottage; não repita embutidos em mais de uma refeição do dia. Fruta é acompanhamento ou combina com iogurte/aveia; almoço e jantar devem parecer pratos reais. Nunca invente alimentos, macros ou IDs. Evite repetir o mesmo alimento em refeições diferentes.",
             },
             { role: "user", content: JSON.stringify(data) },
           ],

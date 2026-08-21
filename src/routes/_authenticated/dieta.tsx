@@ -57,6 +57,8 @@ import {
   useGenerateDiet,
   useLogFreeFood,
   useMealPlan,
+  usePreferences,
+  useReplaceMealItems,
   useDeleteSavedMeal,
   useSavedMeals,
   useSaveMeal,
@@ -67,6 +69,8 @@ import {
   useUpdateMealTime,
 } from "@/lib/db";
 import type { FoodItem, FoodLogRow, MealItemRow, SavedMeal } from "@/lib/db";
+import { eligibleDietFoods, generateMealAlternatives, mealPlanMacros } from "@/lib/plan-generator";
+import type { FoodRow, MealAlternative, PlanFoodItem } from "@/lib/plan-generator";
 import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 import { searchOffProducts } from "@/lib/openfoodfacts";
 import type { OffProduct } from "@/lib/openfoodfacts";
@@ -102,6 +106,7 @@ function Dieta() {
   const goal = useActiveGoal();
   const mealPlan = useMealPlan();
   const foods = useFoods();
+  const preferences = usePreferences();
   const subs = useSubstitutions();
   const generate = useGenerateDiet();
   const foodLogs = useFoodLogsToday();
@@ -181,6 +186,13 @@ function Dieta() {
     logsToday.filter((log) => log.meal_id).map((log) => [log.meal_id as string, log]),
   );
   const actualMeal = meals.find((meal) => meal.id === actualMealId) ?? null;
+  const eligibleFoods = eligibleDietFoods({
+    foods: (foods.data ?? []) as FoodRow[],
+    restrictions: preferences.data?.dietary_restrictions ?? [],
+    dislikes: preferences.data?.disliked_foods ?? null,
+    allergies: preferences.data?.allergies ?? null,
+    supplements: preferences.data?.supplements ?? null,
+  });
 
   const subsByFood = new Map<string, FoodItem[]>();
   for (const s of (subs.data ?? []) as unknown as SubRow[]) {
@@ -241,7 +253,7 @@ function Dieta() {
 
       <div id="registro-alimentar">
         <FreeFoodLog
-          foods={foods.data ?? []}
+          foods={eligibleFoods as FoodItem[]}
           entries={extraLogs}
           targetMeal={actualMeal}
           targetLog={actualMeal ? (logByMealId.get(actualMeal.id) ?? null) : null}
@@ -992,7 +1004,9 @@ function MealCard({
 }) {
   const updateTime = useUpdateMealTime();
   const toggleCompletion = useToggleMealCompletion();
+  const replaceMeal = useReplaceMealItems();
   const [timeDraft, setTimeDraft] = useState(meal.scheduled_time?.slice(0, 5) ?? "");
+  const [alternatives, setAlternatives] = useState<MealAlternative[] | null>(null);
   const items = meal.meal_items ?? [];
   const mt = macroTotals(items);
   const consumedItems = Array.isArray(consumedLog?.consumed_items)
@@ -1032,6 +1046,51 @@ function MealCard({
               : `${formatKcal(mt.kcal)} somadas ao consumo de hoje.`,
           }),
         onError: () => toast.error("Não foi possível atualizar a refeição."),
+      },
+    );
+  }
+
+  function toggleAlternatives() {
+    if (alternatives) {
+      setAlternatives(null);
+      return;
+    }
+    const categoryById = new Map(foods.map((food) => [food.id, food.category]));
+    const currentItems: PlanFoodItem[] = items.map((item) => ({
+      food_item_id: item.food_item_id ?? undefined,
+      food_name: item.food_name,
+      quantity: Number(item.quantity),
+      unit: item.unit,
+      calories: Number(item.calories),
+      protein_g: Number(item.protein_g),
+      carbs_g: Number(item.carbs_g),
+      fat_g: Number(item.fat_g),
+      fiber_g: Number(item.fiber_g),
+      preparation: item.preparation ?? undefined,
+      notes: item.notes ?? undefined,
+      category: item.food_item_id ? categoryById.get(item.food_item_id) : undefined,
+    }));
+    const generated = generateMealAlternatives({
+      foods: foods as FoodRow[],
+      mealName: meal.name,
+      scheduledTime: meal.scheduled_time?.slice(0, 5) ?? "12:00",
+      currentItems,
+      count: 4,
+    });
+    setAlternatives(generated);
+  }
+
+  function applyAlternative(option: MealAlternative) {
+    replaceMeal.mutate(
+      { mealId: meal.id, items: option.items },
+      {
+        onSuccess: () => {
+          setAlternatives(null);
+          toast.success("Opção aplicada", {
+            description: `${meal.name} foi atualizada. O que você já registrou hoje foi preservado.`,
+          });
+        },
+        onError: () => toast.error("Não foi possível aplicar esta opção."),
       },
     );
   }
@@ -1164,6 +1223,99 @@ function MealCard({
           ))}
         </div>
       )}
+      <div className="mt-4 border-t border-border/60 pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-between rounded-xl border-accent/20 bg-accent/[0.035] px-4 hover:border-accent/40 hover:bg-accent/[0.07]"
+          onClick={toggleAlternatives}
+          aria-expanded={alternatives !== null}
+        >
+          <span className="flex items-center gap-2">
+            <Replace className="h-4 w-4 text-accent" />
+            {alternatives ? "Fechar opções" : "Ver 4 opções equivalentes"}
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">mesmas metas</span>
+        </Button>
+
+        {alternatives ? (
+          <div className="mt-3 rounded-2xl border border-accent/15 bg-background/35 p-2.5 sm:p-3">
+            <div className="mb-3 px-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+                Opções equivalentes
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Porções recalculadas para permanecer próximas desta refeição.
+              </p>
+            </div>
+            {alternatives.length > 0 ? (
+              <div className="grid gap-2 lg:grid-cols-2">
+                {alternatives.map((option, index) => {
+                  const optionTotals = mealPlanMacros([option]);
+                  const kcalDiff = Math.round(optionTotals.calories - mt.kcal);
+                  return (
+                    <div
+                      key={option.items.map((item) => item.food_item_id).join("-")}
+                      className="flex min-h-40 flex-col rounded-xl border border-border/70 bg-card/80 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-2.5">
+                        <div>
+                          <p className="text-sm font-semibold">Opção {index + 1}</p>
+                          <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                            {Math.round(optionTotals.calories)} kcal · P{" "}
+                            {Math.round(optionTotals.protein)}g · C {Math.round(optionTotals.carbs)}
+                            g · G {Math.round(optionTotals.fat)}g
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-accent/20 bg-accent/5 px-2 py-1 text-[10px] font-medium tabular-nums text-accent">
+                          {kcalDiff === 0
+                            ? "mesma kcal"
+                            : `${kcalDiff > 0 ? "+" : ""}${kcalDiff} kcal`}
+                        </span>
+                      </div>
+                      <div className="flex-1 space-y-1.5 py-3">
+                        {option.items.map((item) => (
+                          <div
+                            key={item.food_item_id}
+                            className="flex items-baseline justify-between gap-3 text-xs"
+                          >
+                            <span className="min-w-0 truncate text-foreground/90">
+                              {item.food_name}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {item.quantity} {item.unit}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => applyAlternative(option)}
+                        disabled={replaceMeal.isPending}
+                      >
+                        <Check className="mr-1.5 h-3.5 w-3.5" /> Usar esta opção
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
+                O catálogo ainda não possui quatro combinações compatíveis com esta refeição.
+              </p>
+            )}
+            {consumedLog ? (
+              <p className="mt-3 px-1 text-[11px] text-muted-foreground">
+                A alteração vale para o planejamento. Seu consumo registrado hoje não será
+                modificado.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </SectionCard>
   );
 }

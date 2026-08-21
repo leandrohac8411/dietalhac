@@ -7,10 +7,10 @@ import {
   eligibleDietFoods,
   generateMealPlan,
   generateWorkoutPlan,
-  mealPlanDeviation,
+  mealPlanQualityScore,
   mealPlanWithinTolerance,
 } from "@/lib/plan-generator";
-import type { FoodRow, PlanMeal } from "@/lib/plan-generator";
+import type { FoodRow, PlanFoodItem, PlanMeal } from "@/lib/plan-generator";
 import { generateNaturalDiet } from "@/lib/diet-ai.functions";
 import { databaseError } from "@/lib/errors";
 
@@ -1089,7 +1089,9 @@ export function useGenerateDiet() {
       );
       const candidatePool = viableCandidates.length > 0 ? viableCandidates : candidates;
       const localPlan: PlanMeal[] = candidatePool.reduce((best, candidate) =>
-        mealPlanDeviation(candidate, targets) < mealPlanDeviation(best, targets) ? candidate : best,
+        mealPlanQualityScore(candidate, targets) < mealPlanQualityScore(best, targets)
+          ? candidate
+          : best,
       );
 
       const eligibleFoods = eligibleDietFoods({
@@ -1099,10 +1101,44 @@ export function useGenerateDiet() {
         allergies: prefs?.allergies ?? null,
         supplements: prefs?.supplements ?? null,
       });
+
+      // O catálogo completo pode ultrapassar o limite aceito pelo contrato da
+      // função de IA. Mantemos todos os alimentos no gerador local e enviamos
+      // ao Groq uma amostra equilibrada por categoria, priorizando os itens já
+      // escolhidos no melhor plano determinístico.
+      const aiCatalogById = new Map<string, FoodRow>();
+      const eligibleById = new Map(eligibleFoods.map((food) => [food.id, food]));
+      for (const meal of localPlan) {
+        for (const item of meal.items) {
+          const food = eligibleById.get(item.food_item_id);
+          if (food) aiCatalogById.set(food.id, food);
+        }
+      }
+      const foodsByCategory = new Map<string, FoodRow[]>();
+      for (const food of eligibleFoods) {
+        const categoryFoods = foodsByCategory.get(food.category) ?? [];
+        categoryFoods.push(food);
+        foodsByCategory.set(food.category, categoryFoods);
+      }
+      let categoryIndex = 0;
+      while (aiCatalogById.size < 250) {
+        let addedInPass = false;
+        for (const categoryFoods of foodsByCategory.values()) {
+          const food = categoryFoods[categoryIndex];
+          if (food && !aiCatalogById.has(food.id)) {
+            aiCatalogById.set(food.id, food);
+            addedInPass = true;
+            if (aiCatalogById.size === 250) break;
+          }
+        }
+        if (!addedInPass) break;
+        categoryIndex += 1;
+      }
+      const aiCatalog = [...aiCatalogById.values()];
       const aiChoices = await generateNaturalDiet({
         data: {
           meals: localPlan.map(({ name, scheduled_time }) => ({ name, scheduled_time })),
-          foods: eligibleFoods.map(({ id, name, category }) => ({ id, name, category })),
+          foods: aiCatalog.map(({ id, name, category }) => ({ id, name, category })),
           restrictions: prefs?.dietary_restrictions ?? [],
           dislikes: prefs?.disliked_foods ?? null,
           allergies: prefs?.allergies ?? null,
@@ -1117,7 +1153,7 @@ export function useGenerateDiet() {
       const plan: PlanMeal[] =
         aiPlan &&
         mealPlanWithinTolerance(aiPlan, targets) &&
-        mealPlanDeviation(aiPlan, targets) < mealPlanDeviation(localPlan, targets)
+        mealPlanQualityScore(aiPlan, targets) < mealPlanQualityScore(localPlan, targets)
           ? aiPlan
           : localPlan;
       if (!mealPlanWithinTolerance(plan, targets)) {
@@ -1224,6 +1260,34 @@ export function useSwapMealItem() {
           ...scaleCatalogFood(substitute, grams),
         })
         .eq("id", item.id);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mealPlan"] }),
+  });
+}
+
+/** Troca uma refeição completa de forma atômica, preservando o histórico já consumido. */
+export function useReplaceMealItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ mealId, items }: { mealId: string; items: PlanFoodItem[] }) => {
+      const payload = items.map((item) => ({
+        food_item_id: item.food_item_id ?? null,
+        food_name: item.food_name,
+        quantity: item.quantity,
+        unit: item.unit,
+        calories: item.calories,
+        protein_g: item.protein_g,
+        carbs_g: item.carbs_g,
+        fat_g: item.fat_g,
+        fiber_g: item.fiber_g,
+        preparation: item.preparation ?? null,
+        notes: item.notes ?? null,
+      }));
+      const { error } = await supabase.rpc("replace_meal_items", {
+        p_meal_id: mealId,
+        p_items: payload,
+      });
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["mealPlan"] }),

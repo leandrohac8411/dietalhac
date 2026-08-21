@@ -1306,6 +1306,13 @@ export type Database = {
         };
         Returns: boolean;
       };
+      replace_meal_items: {
+        Args: {
+          p_items: Json;
+          p_meal_id: string;
+        };
+        Returns: undefined;
+      };
     };
     Enums: {
       app_role: "user" | "admin" | "nutritionist" | "trainer";

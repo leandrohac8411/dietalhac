@@ -3,7 +3,9 @@ import {
   buildMealPlanFromChoices,
   eligibleDietFoods,
   generateMealPlan,
+  generateMealAlternatives,
   mealPlanMacros,
+  mealPlanNaturalnessPenalty,
 } from "../src/lib/plan-generator.ts";
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -93,6 +95,42 @@ for (const item of plan.flatMap((entry) => entry.items)) {
   if (item.food_name === "Queijo minas frescal") assert.ok(item.quantity <= 80);
   assert.equal(item.quantity % 5, 0);
 }
+assert.ok(
+  mealPlanNaturalnessPenalty(plan) >= 3,
+  "Pão acompanhado apenas de whey deve ser identificado como combinação artificial.",
+);
+
+const strangePlan = [
+  meal("Café da manhã", "08:30", [[id(1), 100]]),
+  meal("Almoço", "12:30", [[id(5), 200]]),
+].map((entry) => buildMealPlanFromChoices({ foods, choices: [entry], targets })[0]);
+assert.ok(
+  mealPlanNaturalnessPenalty(strangePlan) >= 1.3,
+  "Uma lista matematicamente possível, mas sem composição de refeição, deve ser penalizada.",
+);
+
+const dryBreadPlan = buildMealPlanFromChoices({
+  foods,
+  choices: [
+    meal("Lanche da manhã", "10:00", [
+      [id(1), 50],
+      [id(15), 30],
+      [id(3), 120],
+    ]),
+  ],
+  targets: { calories: 400, protein: 30, carbs: 50, fat: 8, fiber: 5 },
+});
+assert.ok(
+  mealPlanNaturalnessPenalty(dryBreadPlan) >= 3,
+  "Whey ao lado não deve ser aceito como recheio do pão.",
+);
+
+for (const mealsPerDay of [3, 5, 6]) {
+  const scenarioPlan = generateMealPlan({ foods, mealsPerDay, targets });
+  assert.equal(scenarioPlan.length, mealsPerDay);
+  assert.ok(scenarioPlan.every((entry) => entry.items.length > 0));
+  assert.ok(scenarioPlan.flatMap((entry) => entry.items).every((item) => item.quantity % 5 === 0));
+}
 
 const contextualPlan = generateMealPlan({
   foods,
@@ -114,6 +152,22 @@ assert.ok(
 );
 assert.ok(
   eligibleDietFoods({ foods, dislikes: "legumes" }).every((item) => item.category !== "vegetal"),
+);
+
+const lunch = plan.find((entry) => entry.name === "Almoço");
+assert.ok(lunch);
+const alternatives = generateMealAlternatives({
+  foods,
+  mealName: lunch.name,
+  scheduledTime: lunch.scheduled_time,
+  currentItems: lunch.items,
+  count: 4,
+});
+assert.ok(alternatives.length >= 2);
+assert.ok(
+  alternatives.every((option) =>
+    option.items.some((item) => ["proteina", "peixe", "ovo"].includes(item.category)),
+  ),
 );
 
 console.log(

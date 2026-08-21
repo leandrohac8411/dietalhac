@@ -13,6 +13,8 @@ export type PlanFoodItem = {
   carbs_g: number;
   fat_g: number;
   fiber_g: number;
+  /** Usada somente na validação culinária; não precisa ser persistida. */
+  category?: string | undefined;
   preparation?: string | undefined;
   notes?: string | undefined;
 };
@@ -178,6 +180,7 @@ function scaleFood(food: FoodRow, grams: number, preparation?: string): PlanFood
     carbs_g: Math.round(food.carbs_g * ratio * 10) / 10,
     fat_g: Math.round(food.fat_g * ratio * 10) / 10,
     fiber_g: Math.round(food.fiber_g * ratio * 10) / 10,
+    category: food.category,
     preparation,
   };
 }
@@ -217,6 +220,8 @@ const NATURAL_COMBOS: Record<string, string[][]> = {
     ["Iogurte grego natural", "Morango", "Chia"],
     ["Maçã", "Pasta de amendoim"],
     ["Queijo cottage", "Mamão"],
+    ["Pão de forma integral", "Presunto cozido", "Queijo mussarela light"],
+    ["Pão de forma branco", "Peito de peru fatiado (frios)", "Mussarela fatiada"],
   ],
   Almoço: [
     [
@@ -239,6 +244,8 @@ const NATURAL_COMBOS: Record<string, string[][]> = {
   ],
   "Lanche da tarde": [
     ["Pão integral", "Peito de peru fatiado (frios)", "Queijo cottage"],
+    ["Pão de forma integral", "Presunto cozido", "Queijo mussarela light"],
+    ["Pão de forma branco", "Presunto cozido", "Mussarela fatiada"],
     ["Pão de forma integral", "Ovo inteiro", "Queijo minas frescal"],
     ["Tapioca (goma hidratada)", "Peito de frango desfiado", "Queijo cottage"],
     ["Iogurte grego natural", "Banana prata", "Aveia em flocos"],
@@ -680,6 +687,94 @@ export function mealPlanDeviation(plan: PlanMeal[], targets: DietTargets): numbe
   );
 }
 
+function hasBreadWithoutFilling(meal: PlanMeal): boolean {
+  const baseName = meal.name.replace(/ \((?:pré|pós)-treino\)$/i, "");
+  if (!["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(baseName)) return false;
+  const names = meal.items.map((item) => deburr(item.food_name.toLowerCase()));
+  if (!names.some((name) => name.includes("pao"))) return false;
+  const fillings = [
+    "ovo",
+    "omelete",
+    "presunto",
+    "peito de peru",
+    "queijo",
+    "mussarela",
+    "mucarela",
+    "ricota",
+    "cottage",
+    "requeijao",
+    "frango desfiado",
+    "atum",
+    "pasta de amendoim",
+  ];
+  return !names.some((name) => fillings.some((filling) => name.includes(filling)));
+}
+
+/** Penaliza planos que fecham a matemática, mas não se parecem com refeições
+ * reais. A nota complementa o desvio de macros na escolha entre candidatos. */
+export function mealPlanNaturalnessPenalty(plan: PlanMeal[]): number {
+  let penalty = 0;
+  const occurrences = new Map<string, number>();
+
+  for (const meal of plan) {
+    const baseName = meal.name.replace(/ \((?:pré|pós)-treino\)$/i, "");
+    const categories = new Set(meal.items.map((item) => item.category).filter(Boolean));
+    const names = meal.items.map((item) => deburr(item.food_name.toLowerCase()));
+    const isMainMeal = baseName === "Almoço" || baseName === "Jantar";
+    const isBreakfastOrSnack =
+      baseName === "Café da manhã" ||
+      baseName === "Lanche da manhã" ||
+      baseName === "Lanche da tarde";
+    const hasProtein = ["proteina", "peixe", "ovo", "laticinio"].some((category) =>
+      categories.has(category),
+    );
+    const hasMainSide = ["carboidrato", "leguminosa", "vegetal"].some((category) =>
+      categories.has(category),
+    );
+    const hasBreadLike = names.some(
+      (name) => name.includes("pao") || name.includes("tapioca") || name.includes("cuscuz"),
+    );
+    const hasColdCuts = names.some(
+      (name) => name.includes("presunto") || name.includes("peito de peru"),
+    );
+    const hasCheese = names.some(
+      (name) =>
+        name.includes("mussarela") ||
+        name.includes("mucarela") ||
+        name.includes("queijo") ||
+        name.includes("ricota") ||
+        name.includes("cottage"),
+    );
+
+    if (meal.items.length < 2) penalty += 0.8;
+    if (isMainMeal && !hasProtein) penalty += 1.2;
+    if (isMainMeal && !hasMainSide) penalty += 0.5;
+    if (isBreakfastOrSnack && hasBreadLike && !hasProtein) penalty += 0.9;
+    if (isBreakfastOrSnack && hasBreadLike && hasColdCuts && !hasCheese) penalty += 0.75;
+    if (hasBreadWithoutFilling(meal)) penalty += 3;
+
+    for (const item of meal.items) {
+      const key = deburr(item.food_name.toLowerCase());
+      occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+    }
+  }
+
+  for (const count of occurrences.values()) {
+    if (count > 2) penalty += (count - 2) * 0.35;
+  }
+  const processedMeatCount = [...occurrences.entries()].reduce(
+    (sum, [name, count]) =>
+      sum + (name.includes("presunto") || name.includes("peito de peru") ? count : 0),
+    0,
+  );
+  if (processedMeatCount > 1) penalty += (processedMeatCount - 1) * 0.7;
+  return penalty;
+}
+
+export function mealPlanQualityScore(plan: PlanMeal[], targets: DietTargets): number {
+  return mealPlanDeviation(plan, targets) + mealPlanNaturalnessPenalty(plan);
+}
+
 export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets): boolean {
   const totals = mealPlanMacros(plan);
   const within = (actual: number, target: number, tolerance: number) =>
@@ -707,7 +802,7 @@ export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets):
           name.includes("peru") ||
           name.includes("ovo inteiro"),
       );
-    return mealFat <= fatCeiling && !stacksOmeletFat;
+    return mealFat <= fatCeiling && !stacksOmeletFat && !hasBreadWithoutFilling(meal);
   });
   return (
     within(totals.calories, targets.calories, 0.08) &&
@@ -737,7 +832,7 @@ export function buildMealPlanFromChoices(params: {
       const food = foodsById.get(choice.food_item_id);
       if (!food || seen.has(food.id)) return;
       seen.add(food.id);
-      const [min, max] = CLAMP_GRAMS[food.category] ?? [5, 400];
+      const [min, max] = portionBounds(food);
       items.push({
         food,
         grams: clampN(Number(choice.grams) || BASE_GRAMS[food.category] || 100, min, max),
@@ -838,6 +933,94 @@ export function generateMealPlan(params: {
   repairProteinSelection(names, items, pool, params.targets);
   repairMealCompatibility(names, items, pool);
   return balanceAndFormat(displayNames, times, items, params.targets);
+}
+
+export type MealAlternative = PlanMeal & {
+  deviation: number;
+};
+
+/** Cria opções completas para uma refeição, preservando os macros da opção
+ * atual. Combinações culinárias conhecidas têm prioridade sobre slots livres. */
+export function generateMealAlternatives(params: {
+  foods: FoodRow[];
+  mealName: string;
+  scheduledTime: string;
+  currentItems: PlanFoodItem[];
+  count?: number;
+}): MealAlternative[] {
+  const count = clampN(Math.round(params.count ?? 4), 1, 4);
+  const baseName = params.mealName.replace(/ \((?:pré|pós)-treino\)$/i, "");
+  const role: MealRole = params.mealName.includes("pré-treino")
+    ? "pre_workout"
+    : params.mealName.includes("pós-treino")
+      ? "post_workout"
+      : "regular";
+  const current = params.currentItems.reduce(
+    (total, item) => ({
+      calories: total.calories + item.calories,
+      protein: total.protein + item.protein_g,
+      carbs: total.carbs + item.carbs_g,
+      fat: total.fat + item.fat_g,
+      fiber: total.fiber + item.fiber_g,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+  );
+  if (current.calories <= 0 || params.foods.length === 0) return [];
+
+  const currentSignature = params.currentItems
+    .map((item) => deburr(item.food_name.toLowerCase()))
+    .sort()
+    .join("|");
+  const selections: FoodRow[][] = [];
+  for (const combo of NATURAL_COMBOS[baseName] ?? []) {
+    const selected = combo.map((name) => params.foods.find((food) => food.name === name));
+    if (selected.every(Boolean)) selections.push(selected as FoodRow[]);
+  }
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const used = new Set<string>();
+    const pick = makePicker(params.foods, null, null, used);
+    const selected = archetype(baseName, false, role)
+      .map((slot) => pick(slot))
+      .filter(Boolean) as FoodRow[];
+    if (selected.length > 0) selections.push(selected);
+  }
+
+  const candidates = new Map<string, MealAlternative>();
+  for (const selected of selections) {
+    const signature = selected
+      .map((food) => deburr(food.name.toLowerCase()))
+      .sort()
+      .join("|");
+    if (!signature || signature === currentSignature || candidates.has(signature)) continue;
+    const buildItems: BuildItem[] = selected.map((food) => ({
+      food,
+      grams: BASE_GRAMS[food.category] ?? 100,
+      mealIndex: 0,
+      preparation: prep(food.category),
+    }));
+    repairProteinSelection([baseName], buildItems, params.foods, current);
+    repairMealCompatibility([baseName], buildItems, params.foods);
+    const option = balanceAndFormat(
+      [params.mealName],
+      [params.scheduledTime],
+      buildItems,
+      current,
+    )[0];
+    if (!option || hasBreadWithoutFilling(option)) continue;
+    candidates.set(signature, {
+      ...option,
+      deviation: mealPlanDeviation([option], current),
+    });
+  }
+
+  return [...candidates.values()]
+    .sort(
+      (a, b) =>
+        mealPlanQualityScore([a], current) - mealPlanQualityScore([b], current) ||
+        a.deviation - b.deviation,
+    )
+    .slice(0, count);
 }
 
 export type PlanWorkoutExercise = {
