@@ -1,13 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ClipboardList, KeyRound, LogOut, Save, User } from "lucide-react";
+import { Bell, BellOff, ClipboardList, KeyRound, LogOut, Save, Send, User } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSignOut } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { LoadingBlock, PageHeader, SectionCard } from "@/components/common";
 import {
   useActiveGoal,
@@ -19,6 +20,14 @@ import {
 import { getErrorMessage } from "@/lib/errors";
 import { GOAL_LABELS, formatNumber } from "@/lib/fitness";
 import { SPLIT_LABELS } from "@/lib/plan-generator";
+import {
+  useDisablePush,
+  useEnablePush,
+  useNotificationPreferences,
+  usePushStatus,
+  useSendTestPush,
+  useUpdateNotificationPreferences,
+} from "@/lib/push-notifications";
 
 export const Route = createFileRoute("/_authenticated/perfil")({
   component: Page_perfil,
@@ -61,6 +70,163 @@ function useAuthEmail() {
       return data.user?.email ?? null;
     },
   });
+}
+
+function NotificationSettings() {
+  const status = usePushStatus();
+  const preferences = useNotificationPreferences();
+  const enable = useEnablePush();
+  const disable = useDisablePush();
+  const update = useUpdateNotificationPreferences();
+  const test = useSendTestPush();
+
+  const pending = enable.isPending || disable.isPending || update.isPending;
+  const change = (patch: Parameters<typeof update.mutate>[0]) =>
+    update.mutate(patch, {
+      onSuccess: () => toast.success("Preferências atualizadas"),
+      onError: (error) =>
+        toast.error("Não foi possível atualizar", { description: getErrorMessage(error) }),
+    });
+
+  if (status.isLoading) return <LoadingBlock rows={2} />;
+  const current = status.data;
+
+  if (current?.capability === "unsupported") {
+    return (
+      <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+        Este navegador não oferece suporte a notificações Web Push.
+      </div>
+    );
+  }
+
+  if (current?.capability === "needs-install") {
+    return (
+      <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
+        <p className="text-sm font-semibold">Instale o NEXO na Tela de Início</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          No iPhone, abra o menu de compartilhamento, escolha “Adicionar à Tela de Início” e depois
+          acesse o NEXO pelo ícone instalado. Esta exigência é do iOS.
+        </p>
+      </div>
+    );
+  }
+
+  if (!current?.subscribed) {
+    return (
+      <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+        <p className="text-sm font-semibold">Receba lembretes mesmo com o NEXO fechado</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A ativação é opcional. O navegador solicitará sua autorização uma única vez.
+        </p>
+        {current?.permission === "denied" && (
+          <p className="mt-3 text-xs font-medium text-destructive">
+            As notificações estão bloqueadas nos ajustes deste aparelho.
+          </p>
+        )}
+        <Button
+          className="mt-4"
+          disabled={enable.isPending || current?.permission === "denied"}
+          onClick={() =>
+            enable.mutate(undefined, {
+              onSuccess: () => toast.success("Notificações ativadas neste aparelho"),
+              onError: (error) =>
+                toast.error("Não foi possível ativar", { description: getErrorMessage(error) }),
+            })
+          }
+        >
+          <Bell className="mr-1.5 h-4 w-4" />
+          {enable.isPending ? "Ativando..." : "Ativar notificações"}
+        </Button>
+      </div>
+    );
+  }
+
+  const preference = preferences.data;
+  const options = [
+    {
+      key: "meal_enabled" as const,
+      title: "Refeições",
+      description: `${preference?.meal_lead_minutes ?? 15} min antes do horário planejado`,
+    },
+    {
+      key: "workout_enabled" as const,
+      title: "Treino",
+      description: `${preference?.workout_lead_minutes ?? 30} min antes do treino`,
+    },
+    {
+      key: "water_enabled" as const,
+      title: "Água",
+      description: "Lembretes distribuídos ao longo do dia",
+    },
+    {
+      key: "checkin_enabled" as const,
+      title: "Check-in semanal",
+      description: "Aviso no dia programado para acompanhar sua evolução",
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 p-4">
+        <div>
+          <p className="text-sm font-semibold text-accent">Ativas neste aparelho</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Sem cache offline e sem interferir na navegação.
+          </p>
+        </div>
+        <Bell className="h-5 w-5 shrink-0 text-accent" />
+      </div>
+
+      <div className="divide-y divide-border/60 rounded-xl border border-border/60 px-4">
+        {options.map((option) => (
+          <div key={option.key} className="flex items-center justify-between gap-4 py-3.5">
+            <div>
+              <p className="text-sm font-medium">{option.title}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{option.description}</p>
+            </div>
+            <Switch
+              checked={preference?.[option.key] ?? true}
+              disabled={pending || preferences.isLoading}
+              onCheckedChange={(checked) => change({ [option.key]: checked })}
+              aria-label={`Notificações de ${option.title}`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={test.isPending}
+          onClick={() =>
+            test.mutate(undefined, {
+              onSuccess: () => toast.success("Notificação de teste enviada"),
+              onError: (error) =>
+                toast.error("Não foi possível testar", { description: getErrorMessage(error) }),
+            })
+          }
+        >
+          <Send className="mr-1.5 h-4 w-4" />
+          {test.isPending ? "Enviando..." : "Enviar teste"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disable.isPending}
+          onClick={() =>
+            disable.mutate(undefined, {
+              onSuccess: () => toast.success("Notificações desativadas neste aparelho"),
+              onError: (error) =>
+                toast.error("Não foi possível desativar", { description: getErrorMessage(error) }),
+            })
+          }
+        >
+          <BellOff className="mr-1.5 h-4 w-4" /> Desativar neste aparelho
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function Page_perfil() {
@@ -247,6 +413,15 @@ function Page_perfil() {
             <LogOut className="mr-1.5 h-4 w-4" /> Sair
           </Button>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Notificações"
+        description="Escolha os lembretes que fazem sentido para sua rotina."
+        icon={<Bell className="h-4 w-4" />}
+        accent="green"
+      >
+        <NotificationSettings />
       </SectionCard>
     </div>
   );

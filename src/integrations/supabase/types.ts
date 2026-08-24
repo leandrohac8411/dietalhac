@@ -584,6 +584,131 @@ export type Database = {
         };
         Relationships: [];
       };
+      notification_preferences: {
+        Row: {
+          checkin_enabled: boolean;
+          checkin_time: string;
+          checkin_weekday: number;
+          created_at: string;
+          enabled: boolean;
+          meal_enabled: boolean;
+          meal_lead_minutes: number;
+          timezone: string;
+          updated_at: string;
+          user_id: string;
+          water_enabled: boolean;
+          water_times: string[];
+          workout_enabled: boolean;
+          workout_lead_minutes: number;
+        };
+        Insert: {
+          checkin_enabled?: boolean;
+          checkin_time?: string;
+          checkin_weekday?: number;
+          created_at?: string;
+          enabled?: boolean;
+          meal_enabled?: boolean;
+          meal_lead_minutes?: number;
+          timezone?: string;
+          updated_at?: string;
+          user_id: string;
+          water_enabled?: boolean;
+          water_times?: string[];
+          workout_enabled?: boolean;
+          workout_lead_minutes?: number;
+        };
+        Update: {
+          checkin_enabled?: boolean;
+          checkin_time?: string;
+          checkin_weekday?: number;
+          created_at?: string;
+          enabled?: boolean;
+          meal_enabled?: boolean;
+          meal_lead_minutes?: number;
+          timezone?: string;
+          updated_at?: string;
+          user_id?: string;
+          water_enabled?: boolean;
+          water_times?: string[];
+          workout_enabled?: boolean;
+          workout_lead_minutes?: number;
+        };
+        Relationships: [];
+      };
+      push_delivery_log: {
+        Row: {
+          created_at: string;
+          event_key: string;
+          id: string;
+          subscription_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          event_key: string;
+          id?: string;
+          subscription_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          event_key?: string;
+          id?: string;
+          subscription_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "push_delivery_log_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "push_subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      push_subscriptions: {
+        Row: {
+          auth: string;
+          created_at: string;
+          disabled_at: string | null;
+          endpoint: string;
+          failure_count: number;
+          id: string;
+          last_success_at: string | null;
+          p256dh: string;
+          updated_at: string;
+          user_agent: string | null;
+          user_id: string;
+        };
+        Insert: {
+          auth: string;
+          created_at?: string;
+          disabled_at?: string | null;
+          endpoint: string;
+          failure_count?: number;
+          id?: string;
+          last_success_at?: string | null;
+          p256dh: string;
+          updated_at?: string;
+          user_agent?: string | null;
+          user_id: string;
+        };
+        Update: {
+          auth?: string;
+          created_at?: string;
+          disabled_at?: string | null;
+          endpoint?: string;
+          failure_count?: number;
+          id?: string;
+          last_success_at?: string | null;
+          p256dh?: string;
+          updated_at?: string;
+          user_agent?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           avatar_url: string | null;
@@ -1298,6 +1423,10 @@ export type Database = {
       consume_diet_generation_quota: {
         Args: Record<PropertyKey, never>;
         Returns: boolean;
+      };
+      cleanup_push_delivery_log: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
       };
       has_role: {
         Args: {

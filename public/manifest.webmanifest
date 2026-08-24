@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "NEXO FIT",
+  "short_name": "NEXO FIT",
+  "description": "Dieta, treino e acompanhamento conectados à sua rotina.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07130d",
+  "theme_color": "#07130d",
+  "icons": [
+    {
+      "src": "/nexo-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/nexo-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
