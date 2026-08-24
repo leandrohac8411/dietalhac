@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { LoadingBlock, PageHeader, SectionCard } from "@/components/common";
 import {
   useActiveGoal,
+  useIsAdmin,
   usePreferences,
   useProfile,
   useScreening,
@@ -73,6 +74,7 @@ function useAuthEmail() {
 }
 
 function NotificationSettings() {
+  const isAdmin = useIsAdmin();
   const status = usePushStatus();
   const preferences = useNotificationPreferences();
   const enable = useEnablePush();
@@ -195,21 +197,23 @@ function NotificationSettings() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={test.isPending}
-          onClick={() =>
-            test.mutate(undefined, {
-              onSuccess: () => toast.success("Notificação de teste enviada"),
-              onError: (error) =>
-                toast.error("Não foi possível testar", { description: getErrorMessage(error) }),
-            })
-          }
-        >
-          <Send className="mr-1.5 h-4 w-4" />
-          {test.isPending ? "Enviando..." : "Enviar teste"}
-        </Button>
+        {isAdmin.data && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={test.isPending}
+            onClick={() =>
+              test.mutate(undefined, {
+                onSuccess: () => toast.success("Notificação de teste enviada"),
+                onError: (error) =>
+                  toast.error("Não foi possível testar", { description: getErrorMessage(error) }),
+              })
+            }
+          >
+            <Send className="mr-1.5 h-4 w-4" />
+            {test.isPending ? "Enviando..." : "Enviar teste"}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"

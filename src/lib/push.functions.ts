@@ -4,6 +4,15 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 export const sendTestPush = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { count, error } = await supabaseAdmin
+      .from("user_roles")
+      .select("user_id", { count: "exact", head: true })
+      .eq("user_id", context.userId)
+      .eq("role", "admin");
+    if (error) throw error;
+    if ((count ?? 0) === 0) throw new Error("Apenas administradores podem enviar testes.");
+
     const { sendPushToUser } = await import("@/lib/push.server");
     const sent = await sendPushToUser(context.userId, {
       title: "Notificações ativadas",
