@@ -278,12 +278,17 @@ export async function runScheduledPushes(now = new Date()) {
         target,
       });
       if (progress.shouldNotify) {
+        const severeDelay = progress.deficit >= Math.max(700, Math.round(target * 0.25));
+        const reminderCooldownMinutes = severeDelay ? 55 : 85;
         const { count: recentWaterReminder } = await supabaseAdmin
           .from("push_delivery_log")
           .select("id", { count: "exact", head: true })
           .eq("user_id", preference.user_id)
           .like("event_key", `water:${clock.date}:%`)
-          .gte("created_at", new Date(now.getTime() - 90 * 60_000).toISOString());
+          .gte(
+            "created_at",
+            new Date(now.getTime() - reminderCooldownMinutes * 60_000).toISOString(),
+          );
         if ((recentWaterReminder ?? 0) === 0)
           sent += await deliverEvent(
             devices,
@@ -293,7 +298,7 @@ export async function runScheduledPushes(now = new Date()) {
               title: `Faltam ${formatWater(progress.remaining)} de água hoje`,
               body: `Você registrou ${formatWater(consumed)} de uma meta de ${formatWater(target)}. Hidrate-se aos poucos e registre no NEXO.`,
               url: "/dashboard",
-              tag: "water-reminder",
+              tag: `water-reminder-${clock.date}-${clock.minutes - (clock.minutes % 30)}`,
             },
           );
       }
