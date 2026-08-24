@@ -156,7 +156,7 @@ function NotificationSettings() {
     {
       key: "water_enabled" as const,
       title: "Água",
-      description: "Lembretes distribuídos ao longo do dia",
+      description: "Progresso verificado a cada 30 min; alerta somente quando estiver atrasado",
     },
     {
       key: "checkin_enabled" as const,

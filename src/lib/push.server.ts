@@ -91,6 +91,47 @@ function dueAt(target: number | null, now: number, lead = 0) {
   return elapsed >= 0 && elapsed < 5;
 }
 
+function isHydrationCheckTime(minutes: number) {
+  return minutes % 30 < 5;
+}
+
+function hydrationProgress(input: {
+  nowMinutes: number;
+  wakeTime?: string | null;
+  sleepTime?: string | null;
+  consumed: number;
+  target: number;
+}) {
+  const wake = timeMinutes(input.wakeTime) ?? 7 * 60;
+  let sleep = timeMinutes(input.sleepTime) ?? 22 * 60;
+  if (sleep <= wake) sleep += 1440;
+
+  let current = input.nowMinutes;
+  if (current < wake) current += 1440;
+  const hydrationEnd = Math.max(wake + 8 * 60, sleep - 60);
+  const activeMinutes = hydrationEnd - wake;
+  const elapsedMinutes = Math.max(0, Math.min(activeMinutes, current - wake));
+  const expected = Math.round(input.target * (elapsedMinutes / activeMinutes));
+  const remaining = Math.max(0, input.target - input.consumed);
+  const deficit = Math.max(0, expected - input.consumed);
+  const meaningfulDeficit = Math.max(350, Math.round(input.target * 0.15));
+
+  return {
+    remaining,
+    deficit,
+    shouldNotify:
+      current >= wake + 60 &&
+      current <= hydrationEnd &&
+      remaining >= 250 &&
+      deficit >= meaningfulDeficit,
+  };
+}
+
+function formatWater(ml: number) {
+  if (ml < 1000) return `${Math.round(ml / 50) * 50} ml`;
+  return `${(ml / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} L`;
+}
+
 async function reserveDelivery(subscription: Subscription, userId: string, eventKey: string) {
   const { data, error } = await supabaseAdmin
     .from("push_delivery_log")
@@ -141,7 +182,7 @@ export async function runScheduledPushes(now = new Date()) {
         .eq("is_active", true),
       supabaseAdmin
         .from("user_preferences")
-        .select("user_id,training_time,training_weekdays")
+        .select("user_id,training_time,training_weekdays,wake_time,sleep_time")
         .in("user_id", userIds),
       supabaseAdmin
         .from("user_goals")
@@ -221,10 +262,7 @@ export async function runScheduledPushes(now = new Date()) {
         });
     }
 
-    if (
-      preference.water_enabled &&
-      preference.water_times.some((time) => dueAt(timeMinutes(time), clock.minutes))
-    ) {
+    if (preference.water_enabled && isHydrationCheckTime(clock.minutes)) {
       const target = waterTargetByUser.get(preference.user_id) ?? 2500;
       const { data: waterLogs } = await supabaseAdmin
         .from("water_logs")
@@ -232,18 +270,33 @@ export async function runScheduledPushes(now = new Date()) {
         .eq("user_id", preference.user_id)
         .eq("log_date", clock.date);
       const consumed = (waterLogs ?? []).reduce((total, log) => total + log.amount_ml, 0);
-      if (consumed < target)
-        sent += await deliverEvent(
-          devices,
-          preference.user_id,
-          `water:${clock.date}:${clock.minutes - (clock.minutes % 5)}`,
-          {
-            title: "Hora de beber água",
-            body: `Você registrou ${Math.round(consumed / 100) / 10} L de uma meta de ${Math.round(target / 100) / 10} L.`,
-            url: "/dashboard",
-            tag: "water-reminder",
-          },
-        );
+      const progress = hydrationProgress({
+        nowMinutes: clock.minutes,
+        wakeTime: routine?.wake_time,
+        sleepTime: routine?.sleep_time,
+        consumed,
+        target,
+      });
+      if (progress.shouldNotify) {
+        const { count: recentWaterReminder } = await supabaseAdmin
+          .from("push_delivery_log")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", preference.user_id)
+          .like("event_key", `water:${clock.date}:%`)
+          .gte("created_at", new Date(now.getTime() - 90 * 60_000).toISOString());
+        if ((recentWaterReminder ?? 0) === 0)
+          sent += await deliverEvent(
+            devices,
+            preference.user_id,
+            `water:${clock.date}:${clock.minutes - (clock.minutes % 30)}`,
+            {
+              title: `Faltam ${formatWater(progress.remaining)} de água hoje`,
+              body: `Você registrou ${formatWater(consumed)} de uma meta de ${formatWater(target)}. Hidrate-se aos poucos e registre no NEXO.`,
+              url: "/dashboard",
+              tag: "water-reminder",
+            },
+          );
+      }
     }
 
     if (
