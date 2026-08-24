@@ -231,7 +231,7 @@ export async function runScheduledPushes(now = new Date()) {
         if ((mealAlreadyLogged ?? 0) > 0) continue;
         sent += await deliverEvent(devices, preference.user_id, `meal:${clock.date}:${meal.id}`, {
           title: `${meal.name} em ${preference.meal_lead_minutes} minutos`,
-          body: "Abra o NEXO para conferir sua refeição planejada e registrar o que consumiu.",
+          body: "Abra seu app para conferir sua refeição planejada e registrar o que consumiu.",
           url: "/dieta",
           tag: `meal-${meal.id}`,
         });
