@@ -301,7 +301,7 @@ function Pill({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+        "max-w-full whitespace-normal break-words rounded-full border px-3 py-2 text-center text-[13px] font-medium leading-snug transition-colors sm:px-4 sm:text-sm",
         active
           ? "border-accent bg-accent text-accent-foreground"
           : "border-border bg-card text-foreground hover:bg-muted",
@@ -400,6 +400,12 @@ function Onboarding() {
     const sc = screening.data;
     const ac = activities.data;
     const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+    const stringArray = (v: unknown, fallback: string[] = []) =>
+      Array.isArray(v) ? v.filter((item): item is string => typeof item === "string") : fallback;
+    const numberArray = (v: unknown, fallback: number[] = []) =>
+      Array.isArray(v)
+        ? v.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+        : fallback;
 
     setForm((f) => ({
       ...f,
@@ -408,7 +414,7 @@ function Onboarding() {
       target_weight_kg: str(g?.target_weight_kg),
       target_body_fat: str(g?.target_body_fat),
       deadline_weeks: str(g?.deadline_weeks),
-      priority_areas: g?.priority_areas ?? f.priority_areas,
+      priority_areas: stringArray(g?.priority_areas, f.priority_areas),
       priority_level: g?.priority_level ?? f.priority_level,
       occupation: str(pr?.occupation),
       routine_level: pr?.routine_level ?? f.routine_level,
@@ -418,18 +424,19 @@ function Onboarding() {
       sleep_time: pr?.sleep_time || f.sleep_time,
       training_days: str(pr?.training_days) || f.training_days,
       training_weekdays:
-        pr?.training_weekdays && pr.training_weekdays.length > 0
-          ? pr.training_weekdays
+        numberArray(pr?.training_weekdays).length > 0
+          ? numberArray(pr?.training_weekdays)
           : defaultTrainingWeekdays(Number(pr?.training_days ?? f.training_days)),
       training_duration_min: str(pr?.training_duration_min) || f.training_duration_min,
       training_time: pr?.training_time || f.training_time,
       experience_level: pr?.experience_level ?? f.experience_level,
       training_place: pr?.training_place ?? f.training_place,
-      equipment: pr?.equipment ?? f.equipment,
+      equipment: stringArray(pr?.equipment, f.equipment),
       workout_split_preference: pr?.workout_split_preference ?? f.workout_split_preference,
       meals_per_day: str(pr?.meals_per_day) || f.meals_per_day,
-      meal_times: pr?.meal_times && pr.meal_times.length > 0 ? pr.meal_times : f.meal_times,
-      dietary_restrictions: pr?.dietary_restrictions ?? f.dietary_restrictions,
+      meal_times:
+        stringArray(pr?.meal_times).length > 0 ? stringArray(pr?.meal_times) : f.meal_times,
+      dietary_restrictions: stringArray(pr?.dietary_restrictions, f.dietary_restrictions),
       liked_foods: str(pr?.liked_foods),
       disliked_foods: str(pr?.disliked_foods),
       allergies: str(pr?.allergies),
@@ -456,7 +463,7 @@ function Onboarding() {
         ac && ac.length > 0
           ? ac.map((a) => ({
               activity: a.name,
-              weekdays: a.weekdays,
+              weekdays: numberArray(a.weekdays),
               duration_min: str(a.duration_min),
             }))
           : f.activities,

@@ -1,7 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellOff, ClipboardList, KeyRound, LogOut, Save, Send, User } from "lucide-react";
+import {
+  ArrowRight,
+  Bell,
+  BellOff,
+  ClipboardList,
+  KeyRound,
+  LogOut,
+  PencilLine,
+  Save,
+  Send,
+  User,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSignOut } from "@/hooks/useAuth";
@@ -359,11 +370,6 @@ function Page_perfil() {
         description="Para mudar dias de treino, refeições por dia, restrições ou saúde, edite o questionário completo."
         icon={<ClipboardList className="h-4 w-4" />}
         accent="blue"
-        action={
-          <Button asChild size="sm" variant="secondary">
-            <Link to="/onboarding">Editar questionário</Link>
-          </Button>
-        }
       >
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Tile label="Objetivo" value={g ? (GOAL_LABELS[g.goal_type] ?? g.goal_type) : "—"} />
@@ -402,6 +408,21 @@ function Page_perfil() {
             value={riskFlags.length > 0 ? riskFlags.join(", ") : "Sem sinalizações"}
           />
         </dl>
+        <div className="mt-2 border-t border-border/60 pt-4">
+          <Button
+            asChild
+            variant="outline"
+            className="h-auto min-h-12 w-full justify-between rounded-xl border-accent/35 bg-accent/5 px-4 py-3 text-left hover:border-accent/60 hover:bg-accent/10 sm:w-auto sm:min-w-64"
+          >
+            <Link to="/onboarding">
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <PencilLine className="h-4 w-4 shrink-0 text-accent" />
+                Editar questionário completo
+              </span>
+              <ArrowRight className="ml-3 h-4 w-4 shrink-0 text-muted-foreground" />
+            </Link>
+          </Button>
+        </div>
       </SectionCard>
 
       <SectionCard title="Conta" icon={<KeyRound className="h-4 w-4" />} accent="amber">
