@@ -54,10 +54,12 @@ import {
   useDeleteWorkoutExercise,
   useExercises,
   useGenerateWorkout,
+  useLogSessionSet,
   usePreferences,
   useProfile,
   useRegenerateWorkoutDay,
   useSessions,
+  useStartLiveSession,
   useUpdateWorkoutExercise,
   useWorkoutPlan,
 } from "@/lib/db";
@@ -85,6 +87,31 @@ type WorkoutWithExercises = {
   estimated_min: number | null;
   workout_exercises: WorkoutExerciseRow[];
 };
+
+type SessionSetRow = {
+  exercise_name: string;
+  set_number: number;
+  load_kg: number | null;
+  reps_done: number | null;
+};
+
+type SessionForCompare = {
+  finished_at: string | null;
+  workout_session_sets: SessionSetRow[];
+};
+
+/** Últimas séries registradas para este exercício, da sessão finalizada mais
+ *  recente que o contém (sessions já vem ordenado do mais novo pro mais antigo). */
+function previousSetsFor(sessions: SessionForCompare[], exerciseName: string): SessionSetRow[] {
+  const session = sessions.find(
+    (s) =>
+      s.finished_at && s.workout_session_sets.some((set) => set.exercise_name === exerciseName),
+  );
+  if (!session) return [];
+  return session.workout_session_sets
+    .filter((set) => set.exercise_name === exerciseName)
+    .sort((a, b) => a.set_number - b.set_number);
+}
 
 function Treino() {
   const profile = useProfile();
@@ -176,6 +203,8 @@ function Treino() {
         currentWorkout={currentWorkout}
         exercises={exercises.data ?? []}
         catalogByName={catalogByName}
+        planId={data.plan.id}
+        sessions={sessions.data ?? []}
       />
 
       <Disclaimer>
@@ -191,11 +220,15 @@ function WorkoutList({
   currentWorkout,
   exercises,
   catalogByName,
+  planId,
+  sessions,
 }: {
   workouts: WorkoutWithExercises[];
   currentWorkout: WorkoutWithExercises | null;
   exercises: Exercise[];
   catalogByName: Map<string, Exercise>;
+  planId: string;
+  sessions: SessionForCompare[];
 }) {
   const [showOthers, setShowOthers] = useState(false);
   const others = workouts.filter((w) => w.id !== currentWorkout?.id);
@@ -209,6 +242,8 @@ function WorkoutList({
             exercises={exercises}
             catalogByName={catalogByName}
             isCurrent
+            planId={planId}
+            sessions={sessions}
           />
         </div>
       ) : null}
@@ -232,6 +267,8 @@ function WorkoutList({
                     exercises={exercises}
                     catalogByName={catalogByName}
                     isCurrent={false}
+                    planId={planId}
+                    sessions={sessions}
                   />
                 </div>
               ))}
@@ -248,26 +285,49 @@ function WorkoutCard({
   exercises,
   catalogByName,
   isCurrent,
+  planId,
+  sessions,
 }: {
   workout: WorkoutWithExercises;
   exercises: Exercise[];
   catalogByName: Map<string, Exercise>;
   isCurrent: boolean;
+  planId: string;
+  sessions: SessionForCompare[];
 }) {
   const list = workout.workout_exercises ?? [];
   const complete = useCompleteWorkout();
+  const startLiveSession = useStartLiveSession();
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  /** Cria a sessão do modo ao vivo na primeira série concluída e reaproveita
+   *  o mesmo id para as séries seguintes deste treino. */
+  async function getSessionId(): Promise<string> {
+    if (activeSessionId) return activeSessionId;
+    const id = await startLiveSession.mutateAsync({
+      workoutId: workout.id,
+      workoutPlanId: planId,
+      workoutName: workout.name,
+      cyclePosition: workout.cycle_position ?? workout.sort_order,
+    });
+    setActiveSessionId(id);
+    return id;
+  }
 
   function finish() {
-    complete.mutate(workout, {
-      onSuccess: () =>
-        toast.success("Ficha concluída", {
-          description: "O próximo treino do ciclo já está preparado.",
-        }),
-      onError: (error) =>
-        toast.error("Não foi possível concluir", {
-          description: error instanceof Error ? error.message : "Tente novamente.",
-        }),
-    });
+    complete.mutate(
+      { ...workout, sessionId: activeSessionId },
+      {
+        onSuccess: () =>
+          toast.success("Ficha concluída", {
+            description: "O próximo treino do ciclo já está preparado.",
+          }),
+        onError: (error) =>
+          toast.error("Não foi possível concluir", {
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          }),
+      },
+    );
   }
 
   return (
@@ -304,7 +364,13 @@ function WorkoutCard({
       ) : (
         <div className="space-y-3">
           {list.map((ex) => (
-            <ExerciseRow key={ex.id} ex={ex} catalog={catalogByName.get(ex.exercise_name)} />
+            <ExerciseRow
+              key={ex.id}
+              ex={ex}
+              catalog={catalogByName.get(ex.exercise_name)}
+              previousSets={previousSetsFor(sessions, ex.exercise_name)}
+              getSessionId={getSessionId}
+            />
           ))}
         </div>
       )}
@@ -494,7 +560,17 @@ function cycleLetter(name: string, index: number) {
   return name.match(/Treino\s+([A-Z])/i)?.[1]?.toUpperCase() ?? String.fromCharCode(65 + index);
 }
 
-function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercise | undefined }) {
+function ExerciseRow({
+  ex,
+  catalog,
+  previousSets,
+  getSessionId,
+}: {
+  ex: WorkoutExerciseRow;
+  catalog: Exercise | undefined;
+  previousSets: SessionSetRow[];
+  getSessionId: () => Promise<string>;
+}) {
   const update = useUpdateWorkoutExercise();
   const del = useDeleteWorkoutExercise();
   const [liveOpen, setLiveOpen] = useState(false);
@@ -596,7 +672,14 @@ function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercis
         </Field>
       </div>
 
-      <LiveWorkoutDialog open={liveOpen} onOpenChange={setLiveOpen} ex={ex} catalog={catalog} />
+      <LiveWorkoutDialog
+        open={liveOpen}
+        onOpenChange={setLiveOpen}
+        ex={ex}
+        catalog={catalog}
+        previousSets={previousSets}
+        getSessionId={getSessionId}
+      />
     </div>
   );
 }
@@ -781,24 +864,29 @@ function parseRepsBase(reps: string): number {
 }
 
 /** Modo de execução: acompanha as séries do exercício em tempo real (peso, reps,
- *  descanso). O progresso é local a esta sessão de tela — ainda não é salvo no
- *  histórico do usuário. */
+ *  descanso) e grava cada série concluída no histórico do usuário assim que ela
+ *  é confirmada. */
 function LiveWorkoutDialog({
   open,
   onOpenChange,
   ex,
   catalog,
+  previousSets,
+  getSessionId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ex: WorkoutExerciseRow;
   catalog: Exercise | undefined;
+  previousSets: SessionSetRow[];
+  getSessionId: () => Promise<string>;
 }) {
   const update = useUpdateWorkoutExercise();
+  const logSet = useLogSessionSet();
   const [totalSets, setTotalSets] = useState(() => Math.max(1, Number(ex.sets) || 1));
   const [setIndex, setSetIndex] = useState(0);
-  const [weight, setWeight] = useState(() => Number(ex.load_kg) || 0);
-  const [reps, setReps] = useState(() => parseRepsBase(ex.reps));
+  const [weight, setWeight] = useState(() => Number(ex.load_kg) || previousSets[0]?.load_kg || 0);
+  const [reps, setReps] = useState(() => previousSets[0]?.reps_done || parseRepsBase(ex.reps));
   const [doneSets, setDoneSets] = useState<{ set: number; kg: number; reps: number }[]>([]);
   const [resting, setResting] = useState(false);
   const [restLeft, setRestLeft] = useState(ex.rest_seconds);
@@ -807,8 +895,8 @@ function LiveWorkoutDialog({
     if (!open) return;
     setTotalSets(Math.max(1, Number(ex.sets) || 1));
     setSetIndex(0);
-    setWeight(Number(ex.load_kg) || 0);
-    setReps(parseRepsBase(ex.reps));
+    setWeight(Number(ex.load_kg) || previousSets[0]?.load_kg || 0);
+    setReps(previousSets[0]?.reps_done || parseRepsBase(ex.reps));
     setDoneSets([]);
     setResting(false);
     setRestLeft(ex.rest_seconds);
@@ -832,13 +920,31 @@ function LiveWorkoutDialog({
   const media = catalog?.media_url ?? null;
   const isVideo = !!media && /\.mp4(\?|$)/i.test(media);
   const finished = setIndex >= totalSets;
+  const previousForCurrentSet = previousSets.find((s) => s.set_number === setIndex + 1);
 
-  function completeSet() {
-    setDoneSets((sets) => [...sets, { set: setIndex + 1, kg: weight, reps }]);
+  async function completeSet() {
+    const num = setIndex + 1;
+    const kg = weight;
+    const repsDone = reps;
+    setDoneSets((sets) => [...sets, { set: num, kg, reps: repsDone }]);
     setSetIndex((i) => i + 1);
-    if (setIndex + 1 < totalSets) {
+    if (num < totalSets) {
       setRestLeft(ex.rest_seconds);
       setResting(true);
+    }
+    try {
+      const sessionId = await getSessionId();
+      await logSet.mutateAsync({
+        sessionId,
+        exerciseName: ex.exercise_name,
+        setNumber: num,
+        loadKg: kg,
+        repsDone: repsDone,
+      });
+    } catch (error) {
+      toast.error("Série não salva no histórico", {
+        description: error instanceof Error ? error.message : "Tente novamente.",
+      });
     }
   }
 
@@ -890,6 +996,13 @@ function LiveWorkoutDialog({
               </Button>
             </div>
           </div>
+
+          {!finished && previousForCurrentSet ? (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              Semana passada: {previousForCurrentSet.load_kg ?? "—"} kg ×{" "}
+              {previousForCurrentSet.reps_done ?? "—"}
+            </p>
+          ) : null}
 
           {finished ? (
             <div className="rounded-2xl border border-chart-1/30 bg-chart-1/10 p-5 text-center">

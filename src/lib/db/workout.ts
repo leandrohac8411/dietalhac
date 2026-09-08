@@ -84,11 +84,17 @@ export function useSessions() {
 export function useCompleteWorkout() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (workout: { id: string; name: string; estimated_min: number | null }) => {
+    mutationFn: async (workout: {
+      id: string;
+      name: string;
+      estimated_min: number | null;
+      sessionId?: string | null;
+    }) => {
       await requireUserId();
       const { data, error } = await supabase.rpc("complete_workout_cycle", {
         p_workout_id: workout.id,
         p_duration_min: workout.estimated_min ?? 60,
+        p_session_id: workout.sessionId ?? null,
       });
       if (error) throw error;
       return data;
@@ -97,6 +103,61 @@ export function useCompleteWorkout() {
       void qc.invalidateQueries({ queryKey: ["workoutSessions"] });
       void qc.invalidateQueries({ queryKey: ["workoutPlan"] });
     },
+  });
+}
+
+/** Cria a sessão que o modo de execução ao vivo usa para gravar cada série
+ *  assim que ela é concluída (antes de "Finalizar treino" fechar a sessão). */
+export function useStartLiveSession() {
+  return useMutation({
+    mutationFn: async (params: {
+      workoutId: string;
+      workoutPlanId: string;
+      workoutName: string;
+      cyclePosition: number | null;
+    }) => {
+      const uid = await requireUserId();
+      const { data, error } = await supabase
+        .from("workout_sessions")
+        .insert({
+          user_id: uid,
+          workout_id: params.workoutId,
+          workout_plan_id: params.workoutPlanId,
+          workout_name: params.workoutName,
+          cycle_position: params.cyclePosition,
+          started_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return data.id as string;
+    },
+  });
+}
+
+/** Grava uma série concluída no modo de execução ao vivo. */
+export function useLogSessionSet() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      sessionId: string;
+      exerciseName: string;
+      setNumber: number;
+      loadKg: number | null;
+      repsDone: number | null;
+    }) => {
+      const uid = await requireUserId();
+      const { error } = await supabase.from("workout_session_sets").insert({
+        user_id: uid,
+        session_id: params.sessionId,
+        exercise_name: params.exerciseName,
+        set_number: params.setNumber,
+        load_kg: params.loadKg,
+        reps_done: params.repsDone,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutSessions"] }),
   });
 }
 
