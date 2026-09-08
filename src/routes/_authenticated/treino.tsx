@@ -1,6 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2, Dumbbell, Minus, Play, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
+import {
+  CalendarCheck,
+  CheckCircle2,
+  Dumbbell,
+  Flame,
+  ListChecks,
+  Minus,
+  Moon,
+  Play,
+  Plus,
+  RefreshCw,
+  Target,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,14 +53,16 @@ import {
   useDeleteWorkoutExercise,
   useExercises,
   useGenerateWorkout,
+  usePreferences,
   useProfile,
   useRegenerateWorkoutDay,
+  useSessions,
   useUpdateWorkoutExercise,
   useWorkoutPlan,
 } from "@/lib/db";
 import type { Exercise, WorkoutExerciseRow } from "@/lib/db";
 import { MUSCLE_GROUP_LABELS, SPLIT_LABELS } from "@/lib/plan-generator";
-import { currentCycleWorkout, uniqueCycleWorkouts } from "@/lib/workout-cycle";
+import { currentCycleWorkout, isTrainingDay, uniqueCycleWorkouts } from "@/lib/workout-cycle";
 
 export const Route = createFileRoute("/_authenticated/treino")({
   component: Treino,
@@ -75,6 +90,8 @@ function Treino() {
   const goal = useActiveGoal();
   const workoutPlan = useWorkoutPlan();
   const exercises = useExercises();
+  const prefs = usePreferences();
+  const sessions = useSessions();
   const generate = useGenerateWorkout();
 
   if (profile.isLoading || workoutPlan.isLoading) return <LoadingBlock rows={5} />;
@@ -145,17 +162,24 @@ function Treino() {
         action={<RegenerateButton onConfirm={runGenerate} pending={generate.isPending} />}
       />
 
+      <DayFocus
+        currentWorkout={currentWorkout}
+        trainingWeekdays={prefs.data?.training_weekdays ?? null}
+        sessions={sessions.data ?? []}
+      />
+
       <CycleStatus workouts={workouts} currentPosition={data.plan.current_cycle_position} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         {workouts.map((w) => (
-          <WorkoutCard
-            key={w.id}
-            workout={w}
-            exercises={exercises.data ?? []}
-            catalogByName={catalogByName}
-            isCurrent={currentWorkout?.id === w.id}
-          />
+          <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-20">
+            <WorkoutCard
+              workout={w}
+              exercises={exercises.data ?? []}
+              catalogByName={catalogByName}
+              isCurrent={currentWorkout?.id === w.id}
+            />
+          </div>
         ))}
       </div>
 
@@ -228,6 +252,137 @@ function WorkoutCard({
         </div>
       )}
     </SectionCard>
+  );
+}
+
+const WEEKDAY_SHORT = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+function sameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function DayFocus({
+  currentWorkout,
+  trainingWeekdays,
+  sessions,
+}: {
+  currentWorkout: WorkoutWithExercises | null;
+  trainingWeekdays: number[] | null;
+  sessions: { started_at: string }[];
+}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + (i - 3));
+    return d;
+  });
+
+  const doneDates = sessions.map((s) => new Date(s.started_at));
+  const isTodayTraining = isTrainingDay(trainingWeekdays, today);
+  const exerciseCount = currentWorkout?.workout_exercises?.length ?? 0;
+
+  return (
+    <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        Foco no dia de hoje
+      </p>
+
+      <div className="mb-4 flex items-center justify-between gap-1 sm:gap-2">
+        {days.map((d, i) => {
+          const isToday = sameDay(d, today);
+          const training = isTrainingDay(trainingWeekdays, d);
+          const done = doneDates.some((sd) => sameDay(sd, d));
+          const future = d.getTime() > today.getTime();
+          return (
+            <div
+              key={i}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-2.5 text-center transition-colors",
+                isToday ? "border-accent bg-accent/10" : "border-transparent",
+              )}
+            >
+              <span
+                className={cn(
+                  "text-[10px] font-semibold uppercase tracking-wide",
+                  isToday ? "text-accent" : "text-muted-foreground",
+                )}
+              >
+                {WEEKDAY_SHORT[d.getDay()]}
+              </span>
+              <span
+                className={cn(
+                  "grid h-8 w-8 place-items-center rounded-full text-sm font-bold",
+                  isToday
+                    ? "bg-accent text-accent-foreground"
+                    : done
+                      ? "bg-chart-1/20 text-chart-1"
+                      : training
+                        ? "text-foreground"
+                        : "text-muted-foreground/50",
+                )}
+              >
+                {done ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : !training ? (
+                  <Moon className="h-3.5 w-3.5" />
+                ) : (
+                  d.getDate()
+                )}
+              </span>
+              {!future && training && !done && !isToday ? (
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {isTodayTraining && currentWorkout ? (
+        <div className="rounded-2xl bg-gradient-to-br from-accent to-accent/70 p-5 text-accent-foreground sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-90">
+            <Flame className="h-3.5 w-3.5" /> Hoje
+          </div>
+          <h3 className="mt-1.5 text-xl font-bold sm:text-2xl">{currentWorkout.name}</h3>
+          <p className="mt-1 text-sm opacity-90">
+            {currentWorkout.muscle_groups ?? "Treino completo"}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+            <span className="flex items-center gap-1.5">
+              <ListChecks className="h-4 w-4" /> {exerciseCount} exercícios
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CalendarCheck className="h-4 w-4" /> ~{currentWorkout.estimated_min ?? 60} min
+            </span>
+          </div>
+          <Button
+            size="lg"
+            variant="secondary"
+            className="mt-5 w-full sm:w-auto"
+            onClick={() =>
+              document
+                .getElementById(`workout-${currentWorkout.id}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          >
+            <Play className="mr-1.5 h-4 w-4 fill-current" /> Iniciar treino
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 p-5 text-muted-foreground">
+          <Moon className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Dia de descanso</p>
+            <p className="text-xs">Aproveite para recuperar. Seu próximo treino já está pronto.</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
