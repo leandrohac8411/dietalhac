@@ -125,7 +125,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("gap-4 p-5 shadow-card sm:p-6", className)}>
+    <Card className={cn("flex flex-col gap-4 p-5 shadow-card sm:p-6", className)}>
       {title ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
