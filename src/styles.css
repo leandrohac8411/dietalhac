@@ -364,8 +364,8 @@
 .mobile-nav-shell {
   position: relative;
   isolation: isolate;
-  width: min(20rem, calc(100vw - 1.25rem));
-  height: 4.65rem;
+  width: min(24rem, calc(100vw - 1.25rem));
+  height: 5.1rem;
   align-items: center;
 }
 
@@ -381,8 +381,8 @@
 }
 
 .mobile-nav-item {
-  width: 2.8rem;
-  height: 2.8rem;
+  width: 3.2rem;
+  height: 3.2rem;
   justify-self: center;
   border-radius: 999px;
   background: transparent;
@@ -395,19 +395,19 @@
 }
 
 .mobile-nav-item-center {
-  width: 3.15rem;
-  height: 3.15rem;
+  width: 3.6rem;
+  height: 3.6rem;
   border-radius: 50%;
   background: #9bea36;
   color: #101410;
   box-shadow:
-    0 0 0 0.16rem #f4f7f1,
-    0 7px 14px -8px rgb(95 165 23 / 0.72);
+    0 0 0 0.18rem #f4f7f1,
+    0 8px 16px -8px rgb(95 165 23 / 0.72);
 }
 
 .mobile-nav-item-center svg {
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 1.6rem;
+  height: 1.6rem;
   stroke-width: 2.4;
 }
 

@@ -45,6 +45,7 @@ import {
   EmptyState,
   LoadingBlock,
   PageHeader,
+  Ring,
   SectionCard,
 } from "@/components/common";
 import {
@@ -74,6 +75,7 @@ import type { FoodRow, MealAlternative, PlanFoodItem } from "@/lib/plan-generato
 import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 import { searchOffProducts } from "@/lib/openfoodfacts";
 import type { OffProduct } from "@/lib/openfoodfacts";
+import { PhotoMealCapture } from "@/components/diet/photo-meal-capture";
 
 export const Route = createFileRoute("/_authenticated/dieta")({
   component: Dieta,
@@ -657,19 +659,26 @@ function FreeFoodLog({
     >
       <div className="space-y-4 pt-1.5">
         {targetMeal ? (
-          <AlertNote tone="info">
-            Registrando o que você realmente comeu no lugar de <strong>{targetMeal.name}</strong>.
-            Adicione todos os alimentos e quantidades abaixo; o plano não será somado junto.
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="ml-2 h-7"
-              onClick={cancelTarget}
-            >
-              Cancelar
-            </Button>
-          </AlertNote>
+          <div className="space-y-3">
+            <AlertNote tone="info">
+              Registrando o que você realmente comeu no lugar de <strong>{targetMeal.name}</strong>.
+              Adicione todos os alimentos e quantidades abaixo; o plano não será somado junto.
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="ml-2 h-7"
+                onClick={cancelTarget}
+              >
+                Cancelar
+              </Button>
+            </AlertNote>
+            <PhotoMealCapture
+              mealName={targetMeal.name}
+              foods={foods}
+              onItemsConfirmed={(items) => setDraftItems((current) => [...current, ...items])}
+            />
+          </div>
         ) : null}
         {savedMeals.data && savedMeals.data.length > 0 ? (
           <div className="space-y-2 rounded-lg border border-border/60 p-3">
@@ -930,15 +939,48 @@ function FreeFoodLog({
                 </div>
               ))}
             </div>
-            <p className="text-sm text-muted-foreground">
-              Total: {Math.round(draftTotals.calories)} kcal · P{" "}
-              {formatNumber(draftTotals.protein_g)}· C {formatNumber(draftTotals.carbs_g)} · G{" "}
-              {formatNumber(draftTotals.fat_g)}
-            </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-3 rounded-xl border border-border/60 bg-background/40 p-4">
+              <div className="text-center">
+                <span className="font-display text-4xl font-bold leading-none">
+                  {Math.round(draftTotals.calories)}
+                </span>
+                <span className="ml-1.5 text-sm font-medium text-muted-foreground">kcal</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Ring
+                  value={draftTotals.protein_g * 4}
+                  max={Math.max(1, draftTotals.calories)}
+                  label={`${formatNumber(draftTotals.protein_g)}g`}
+                  sub="Proteína"
+                  accent="green"
+                  size={76}
+                  stroke={7}
+                />
+                <Ring
+                  value={draftTotals.carbs_g * 4}
+                  max={Math.max(1, draftTotals.calories)}
+                  label={`${formatNumber(draftTotals.carbs_g)}g`}
+                  sub="Carbo"
+                  accent="blue"
+                  size={76}
+                  stroke={7}
+                />
+                <Ring
+                  value={draftTotals.fat_g * 9}
+                  max={Math.max(1, draftTotals.calories)}
+                  label={`${formatNumber(draftTotals.fat_g)}g`}
+                  sub="Gordura"
+                  accent="amber"
+                  size={76}
+                  stroke={7}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 type="button"
                 size="sm"
+                className="w-full sm:flex-1"
                 onClick={confirmDraft}
                 disabled={!draftName.trim() || logFood.isPending}
               >
@@ -948,6 +990,7 @@ function FreeFoodLog({
                 type="button"
                 size="sm"
                 variant="outline"
+                className="w-full sm:flex-1"
                 onClick={saveDraft}
                 disabled={!draftName.trim() || saveMeal.isPending}
               >
@@ -1165,19 +1208,70 @@ function MealCard({
       }
     >
       {consumedLog ? (
-        <div className="mb-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm">
-          <p className="font-medium">
-            Consumido: {Math.round(Number(consumedLog.calories))} kcal · P{" "}
-            {formatNumber(consumedLog.protein_g)} · C {formatNumber(consumedLog.carbs_g)} · G{" "}
-            {formatNumber(consumedLog.fat_g)}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Diferença para o planejado:{" "}
-            {Math.round(Number(consumedLog.calories) - mt.kcal) >= 0 ? "+" : ""}
-            {Math.round(Number(consumedLog.calories) - mt.kcal)} kcal
-            {consumedLog.notes === "Refeição diferente do plano" ? " · refeição substituída" : ""}
-          </p>
-          <div className="mt-3 border-t border-accent/20 pt-2">
+        <div className="mb-3 space-y-3 rounded-lg border border-accent/30 bg-accent/5 p-3.5 text-sm">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-display text-2xl font-bold leading-none">
+                {Math.round(Number(consumedLog.calories))}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">kcal consumidas</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(() => {
+                const diff = Math.round(Number(consumedLog.calories) - mt.kcal);
+                return (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                      diff > 0
+                        ? "bg-chart-4/20 text-chart-4"
+                        : diff < 0
+                          ? "bg-chart-1/20 text-chart-1"
+                          : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {diff >= 0 ? "+" : ""}
+                    {diff} kcal vs. planejado
+                  </span>
+                );
+              })()}
+              {consumedLog.notes === "Refeição diferente do plano" ? (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  <Replace className="h-3 w-3" /> Substituída
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 place-items-center">
+            <Ring
+              value={Number(consumedLog.protein_g) * 4}
+              max={Math.max(1, Number(consumedLog.calories))}
+              label={`${formatNumber(consumedLog.protein_g)}g`}
+              sub="Proteína"
+              accent="green"
+              size={84}
+              stroke={7}
+            />
+            <Ring
+              value={Number(consumedLog.carbs_g) * 4}
+              max={Math.max(1, Number(consumedLog.calories))}
+              label={`${formatNumber(consumedLog.carbs_g)}g`}
+              sub="Carbo"
+              accent="blue"
+              size={84}
+              stroke={7}
+            />
+            <Ring
+              value={Number(consumedLog.fat_g) * 9}
+              max={Math.max(1, Number(consumedLog.calories))}
+              label={`${formatNumber(consumedLog.fat_g)}g`}
+              sub="Gordura"
+              accent="amber"
+              size={84}
+              stroke={7}
+            />
+          </div>
+          <div className="border-t border-accent/20 pt-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               O que você consumiu
             </p>

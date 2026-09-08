@@ -1424,6 +1424,10 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: boolean;
       };
+      consume_meal_photo_quota: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
+      };
       cleanup_push_delivery_log: {
         Args: Record<PropertyKey, never>;
         Returns: number;

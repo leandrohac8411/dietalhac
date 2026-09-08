@@ -176,13 +176,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Button>
       </header>
 
-      <main className="w-full px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pl-[18.5rem]">
+      <main className="w-full px-4 pb-28 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pl-[18.5rem]">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>
 
       {/* Barra inferior (mobile) — pílula flutuante só com ícones */}
       <nav className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] lg:hidden">
-        <div className="mobile-nav-shell mx-auto grid max-w-[390px] grid-cols-5">
+        <div className="mobile-nav-shell mx-auto grid max-w-[440px] grid-cols-5">
           <svg
             aria-hidden="true"
             viewBox="0 0 300 70"
@@ -207,7 +207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     : "text-[#101410]/55 hover:text-[#101410]",
                 )}
               >
-                <item.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2.4 : 2} />
+                <item.icon className="h-[21px] w-[21px]" strokeWidth={active ? 2.4 : 2} />
               </Link>
             );
           })}
