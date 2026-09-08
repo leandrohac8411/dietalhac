@@ -794,7 +794,8 @@ function LiveWorkoutDialog({
   ex: WorkoutExerciseRow;
   catalog: Exercise | undefined;
 }) {
-  const totalSets = Math.max(1, Number(ex.sets) || 1);
+  const update = useUpdateWorkoutExercise();
+  const [totalSets, setTotalSets] = useState(() => Math.max(1, Number(ex.sets) || 1));
   const [setIndex, setSetIndex] = useState(0);
   const [weight, setWeight] = useState(() => Number(ex.load_kg) || 0);
   const [reps, setReps] = useState(() => parseRepsBase(ex.reps));
@@ -804,6 +805,7 @@ function LiveWorkoutDialog({
 
   useEffect(() => {
     if (!open) return;
+    setTotalSets(Math.max(1, Number(ex.sets) || 1));
     setSetIndex(0);
     setWeight(Number(ex.load_kg) || 0);
     setReps(parseRepsBase(ex.reps));
@@ -813,6 +815,13 @@ function LiveWorkoutDialog({
     // Só reinicia quando o dialog é reaberto, não a cada mudança de props.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  function changeTotalSets(next: number) {
+    const clamped = Math.max(Math.max(1, setIndex), Math.min(20, next));
+    if (clamped === totalSets) return;
+    setTotalSets(clamped);
+    update.mutate({ id: ex.id, patch: { sets: clamped } });
+  }
 
   useEffect(() => {
     if (!resting || restLeft <= 0) return;
@@ -854,6 +863,34 @@ function LiveWorkoutDialog({
             <DialogTitle>{ex.exercise_name}</DialogTitle>
           </DialogHeader>
 
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {finished ? "Séries" : `Série ${setIndex + 1} de`}
+            </span>
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => changeTotalSets(totalSets - 1)}
+                disabled={totalSets <= Math.max(1, setIndex)}
+                aria-label="Diminuir número de séries"
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </Button>
+              <span className="w-8 text-center text-sm font-bold tabular-nums">{totalSets}</span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => changeTotalSets(totalSets + 1)}
+                aria-label="Aumentar número de séries"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+
           {finished ? (
             <div className="rounded-2xl border border-chart-1/30 bg-chart-1/10 p-5 text-center">
               <CheckCircle2 className="mx-auto h-8 w-8 text-chart-1" />
@@ -864,10 +901,6 @@ function LiveWorkoutDialog({
             </div>
           ) : (
             <>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Série {setIndex + 1} de {totalSets}
-              </p>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-2.5">
