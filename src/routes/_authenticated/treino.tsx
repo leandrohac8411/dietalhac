@@ -135,7 +135,7 @@ function Treino() {
   const workouts = uniqueCycleWorkouts((data.workouts ?? []) as unknown as WorkoutWithExercises[]);
   const currentWorkout = currentCycleWorkout(data.plan, workouts);
   const splitLabel = SPLIT_LABELS[data.plan.split_type] ?? data.plan.split_type;
-  const mediaByName = new Map((exercises.data ?? []).map((e) => [e.name, e.media_url] as const));
+  const catalogByName = new Map((exercises.data ?? []).map((e) => [e.name, e] as const));
 
   return (
     <div className="space-y-6">
@@ -153,7 +153,7 @@ function Treino() {
             key={w.id}
             workout={w}
             exercises={exercises.data ?? []}
-            mediaByName={mediaByName}
+            catalogByName={catalogByName}
             isCurrent={currentWorkout?.id === w.id}
           />
         ))}
@@ -170,12 +170,12 @@ function Treino() {
 function WorkoutCard({
   workout,
   exercises,
-  mediaByName,
+  catalogByName,
   isCurrent,
 }: {
   workout: WorkoutWithExercises;
   exercises: Exercise[];
-  mediaByName: Map<string, string | null>;
+  catalogByName: Map<string, Exercise>;
   isCurrent: boolean;
 }) {
   const list = workout.workout_exercises ?? [];
@@ -223,7 +223,7 @@ function WorkoutCard({
       ) : (
         <div className="divide-y">
           {list.map((ex) => (
-            <ExerciseRow key={ex.id} ex={ex} media={mediaByName.get(ex.exercise_name) ?? null} />
+            <ExerciseRow key={ex.id} ex={ex} catalog={catalogByName.get(ex.exercise_name)} />
           ))}
         </div>
       )}
@@ -282,7 +282,7 @@ function cycleLetter(name: string, index: number) {
   return name.match(/Treino\s+([A-Z])/i)?.[1]?.toUpperCase() ?? String.fromCharCode(65 + index);
 }
 
-function ExerciseRow({ ex, media }: { ex: WorkoutExerciseRow; media: string | null }) {
+function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercise | undefined }) {
   const update = useUpdateWorkoutExercise();
   const del = useDeleteWorkoutExercise();
 
@@ -298,7 +298,7 @@ function ExerciseRow({ ex, media }: { ex: WorkoutExerciseRow; media: string | nu
     <div className="py-3">
       <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <MediaThumb media={media} name={ex.exercise_name} />
+          <MediaThumb exercise={catalog} name={ex.exercise_name} />
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <p className="min-w-0 flex-1 truncate text-sm font-semibold">{ex.exercise_name}</p>
@@ -428,62 +428,22 @@ function Stepper({
   );
 }
 
-function MediaThumb({ media, name }: { media: string | null; name: string }) {
+function MediaThumb({ exercise, name }: { exercise: Exercise | undefined; name: string }) {
   const [failed, setFailed] = useState(false);
+  const media = exercise?.media_url ?? null;
   const isVideo = !!media && /\.mp4(\?|$)/i.test(media);
-  if (!media || failed) {
-    return (
+
+  const thumb =
+    !media || failed ? (
       <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
         <Dumbbell className="h-5 w-5" />
       </span>
-    );
-  }
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted"
-          aria-label={`Ver demonstração de ${name}`}
-        >
-          {isVideo ? (
-            <video
-              src={media}
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              disablePictureInPicture
-              onLoadedMetadata={(event) => {
-                event.currentTarget.currentTime = 0.05;
-              }}
-              onCanPlay={(event) => {
-                void event.currentTarget.play().catch(() => {
-                  event.currentTarget.currentTime = 0.05;
-                });
-              }}
-              onError={() => setFailed(true)}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <img
-              src={media}
-              alt=""
-              loading="lazy"
-              onError={() => setFailed(true)}
-              className="h-full w-full object-cover"
-            />
-          )}
-          <span className="absolute inset-0 grid place-items-center bg-black/25 opacity-0 transition-opacity group-hover:opacity-100">
-            <Play className="h-5 w-5 fill-white text-white" />
-          </span>
-        </button>
-      </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{name}</DialogTitle>
-        </DialogHeader>
+    ) : (
+      <button
+        type="button"
+        className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted"
+        aria-label={`Ver como fazer ${name}`}
+      >
         {isVideo ? (
           <video
             src={media}
@@ -491,13 +451,100 @@ function MediaThumb({ media, name }: { media: string | null; name: string }) {
             loop
             muted
             playsInline
-            controls
-            className="w-full rounded-xl bg-black"
+            preload="auto"
+            disablePictureInPicture
+            onLoadedMetadata={(event) => {
+              event.currentTarget.currentTime = 0.05;
+            }}
+            onCanPlay={(event) => {
+              void event.currentTarget.play().catch(() => {
+                event.currentTarget.currentTime = 0.05;
+              });
+            }}
+            onError={() => setFailed(true)}
+            className="h-full w-full object-cover"
           />
         ) : (
-          <img src={media} alt={name} className="w-full rounded-xl" />
+          <img
+            src={media}
+            alt=""
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className="h-full w-full object-cover"
+          />
         )}
-        <p className="text-xs text-muted-foreground">Demonstração ilustrativa (ExerciseDB).</p>
+        <span className="absolute inset-0 grid place-items-center bg-black/25 opacity-0 transition-opacity group-hover:opacity-100">
+          <Play className="h-5 w-5 fill-white text-white" />
+        </span>
+      </button>
+    );
+
+  // Sem exercício no catálogo (ex.: adicionado manualmente com nome livre) — não
+  // dá pra abrir detalhe nenhum, só mostra o ícone/mídia sem clique.
+  if (!exercise) return thumb;
+
+  const steps = (exercise.instructions ?? "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const groupLabel = MUSCLE_GROUP_LABELS[exercise.muscle_group] ?? exercise.muscle_group;
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{thumb}</DialogTrigger>
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{name}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+            {groupLabel}
+          </span>
+          {exercise.equipment ? (
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+              {exercise.equipment.replace(/_/g, " ")}
+            </span>
+          ) : null}
+        </div>
+        {media ? (
+          isVideo ? (
+            <video
+              src={media}
+              autoPlay
+              loop
+              muted
+              playsInline
+              controls
+              className="w-full rounded-xl bg-black"
+            />
+          ) : (
+            <img src={media} alt={name} className="w-full rounded-xl" />
+          )
+        ) : null}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Como fazer
+          </p>
+          {steps.length > 0 ? (
+            <ol className="mt-2 space-y-2 text-sm">
+              {steps.map((step, i) => (
+                <li key={i} className="flex gap-2.5">
+                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[11px] font-bold text-accent">
+                    {i + 1}
+                  </span>
+                  <span className="text-muted-foreground">{step}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Instruções detalhadas para este exercício ainda não foram adicionadas.
+            </p>
+          )}
+        </div>
+        {media ? (
+          <p className="text-xs text-muted-foreground">Demonstração ilustrativa (ExerciseDB).</p>
+        ) : null}
       </DialogContent>
     </Dialog>
   );
