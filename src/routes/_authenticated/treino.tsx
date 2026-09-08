@@ -170,23 +170,74 @@ function Treino() {
 
       <CycleStatus workouts={workouts} currentPosition={data.plan.current_cycle_position} />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {workouts.map((w) => (
-          <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-20">
-            <WorkoutCard
-              workout={w}
-              exercises={exercises.data ?? []}
-              catalogByName={catalogByName}
-              isCurrent={currentWorkout?.id === w.id}
-            />
-          </div>
-        ))}
-      </div>
+      <WorkoutList
+        workouts={workouts}
+        currentWorkout={currentWorkout}
+        exercises={exercises.data ?? []}
+        catalogByName={catalogByName}
+      />
 
       <Disclaimer>
         Os treinos são sugestões gerais. Não realize exercícios que provoquem dor e procure
         acompanhamento de um profissional de educação física.
       </Disclaimer>
+    </div>
+  );
+}
+
+function WorkoutList({
+  workouts,
+  currentWorkout,
+  exercises,
+  catalogByName,
+}: {
+  workouts: WorkoutWithExercises[];
+  currentWorkout: WorkoutWithExercises | null;
+  exercises: Exercise[];
+  catalogByName: Map<string, Exercise>;
+}) {
+  const [showOthers, setShowOthers] = useState(false);
+  const others = workouts.filter((w) => w.id !== currentWorkout?.id);
+
+  return (
+    <div className="space-y-4">
+      {currentWorkout ? (
+        <div id={`workout-${currentWorkout.id}`} className="scroll-mt-20">
+          <WorkoutCard
+            workout={currentWorkout}
+            exercises={exercises}
+            catalogByName={catalogByName}
+            isCurrent
+          />
+        </div>
+      ) : null}
+
+      {others.length > 0 ? (
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowOthers((s) => !s)}
+            className="w-full sm:w-auto"
+          >
+            {showOthers ? "Ocultar outros treinos" : `Ver outros treinos (${others.length})`}
+          </Button>
+          {showOthers ? (
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              {others.map((w) => (
+                <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-20">
+                  <WorkoutCard
+                    workout={w}
+                    exercises={exercises}
+                    catalogByName={catalogByName}
+                    isCurrent={false}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -233,11 +284,16 @@ function WorkoutCard({
       className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
       {isCurrent ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5">
+        <div className="mb-3 flex flex-col gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-accent">
             <CheckCircle2 className="h-4 w-4" /> Treino atual
           </div>
-          <Button size="sm" onClick={finish} disabled={complete.isPending}>
+          <Button
+            size="sm"
+            onClick={finish}
+            disabled={complete.isPending}
+            className="w-full sm:w-auto"
+          >
             {complete.isPending ? "Finalizando..." : "Finalizar treino"}
           </Button>
         </div>
