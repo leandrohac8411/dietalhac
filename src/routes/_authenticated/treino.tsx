@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -12,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   Target,
+  Timer,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -284,7 +285,7 @@ function WorkoutCard({
       className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
       {isCurrent ? (
-        <div className="mb-3 flex flex-col gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-accent">
             <CheckCircle2 className="h-4 w-4" /> Treino atual
           </div>
@@ -301,7 +302,7 @@ function WorkoutCard({
       {list.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum exercício neste treino.</p>
       ) : (
-        <div className="divide-y">
+        <div className="space-y-3">
           {list.map((ex) => (
             <ExerciseRow key={ex.id} ex={ex} catalog={catalogByName.get(ex.exercise_name)} />
           ))}
@@ -496,6 +497,7 @@ function cycleLetter(name: string, index: number) {
 function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercise | undefined }) {
   const update = useUpdateWorkoutExercise();
   const del = useDeleteWorkoutExercise();
+  const [liveOpen, setLiveOpen] = useState(false);
 
   const stepSets = (d: number) =>
     update.mutate({ id: ex.id, patch: { sets: Math.max(1, Number(ex.sets) + d) } });
@@ -506,10 +508,20 @@ function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercis
     });
 
   return (
-    <div className="py-3">
+    <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
       <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <MediaThumb exercise={catalog} name={ex.exercise_name} />
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setLiveOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setLiveOpen(true);
+          }}
+          className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left"
+        >
+          <span onClick={(e) => e.stopPropagation()}>
+            <MediaThumb exercise={catalog} name={ex.exercise_name} />
+          </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <p className="min-w-0 flex-1 truncate text-sm font-semibold">{ex.exercise_name}</p>
@@ -543,7 +555,7 @@ function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercis
         </Button>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <Stepper
           label="Séries"
           value={`${ex.sets}`}
@@ -583,16 +595,18 @@ function ExerciseRow({ ex, catalog }: { ex: WorkoutExerciseRow; catalog: Exercis
           />
         </Field>
       </div>
+
+      <LiveWorkoutDialog open={liveOpen} onOpenChange={setLiveOpen} ex={ex} catalog={catalog} />
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex items-center gap-1.5">
+    <div className="flex items-center justify-between gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -610,7 +624,7 @@ function Stepper({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center justify-between gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-center gap-0.5">
         <Button
@@ -756,6 +770,196 @@ function MediaThumb({ exercise, name }: { exercise: Exercise | undefined; name: 
         {media ? (
           <p className="text-xs text-muted-foreground">Demonstração ilustrativa (ExerciseDB).</p>
         ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function parseRepsBase(reps: string): number {
+  const match = reps.match(/\d+/);
+  return match ? Number(match[0]) : 10;
+}
+
+/** Modo de execução: acompanha as séries do exercício em tempo real (peso, reps,
+ *  descanso). O progresso é local a esta sessão de tela — ainda não é salvo no
+ *  histórico do usuário. */
+function LiveWorkoutDialog({
+  open,
+  onOpenChange,
+  ex,
+  catalog,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  ex: WorkoutExerciseRow;
+  catalog: Exercise | undefined;
+}) {
+  const totalSets = Math.max(1, Number(ex.sets) || 1);
+  const [setIndex, setSetIndex] = useState(0);
+  const [weight, setWeight] = useState(() => Number(ex.load_kg) || 0);
+  const [reps, setReps] = useState(() => parseRepsBase(ex.reps));
+  const [doneSets, setDoneSets] = useState<{ set: number; kg: number; reps: number }[]>([]);
+  const [resting, setResting] = useState(false);
+  const [restLeft, setRestLeft] = useState(ex.rest_seconds);
+
+  useEffect(() => {
+    if (!open) return;
+    setSetIndex(0);
+    setWeight(Number(ex.load_kg) || 0);
+    setReps(parseRepsBase(ex.reps));
+    setDoneSets([]);
+    setResting(false);
+    setRestLeft(ex.rest_seconds);
+    // Só reinicia quando o dialog é reaberto, não a cada mudança de props.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!resting || restLeft <= 0) return;
+    const t = setTimeout(() => setRestLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resting, restLeft]);
+
+  const media = catalog?.media_url ?? null;
+  const isVideo = !!media && /\.mp4(\?|$)/i.test(media);
+  const finished = setIndex >= totalSets;
+
+  function completeSet() {
+    setDoneSets((sets) => [...sets, { set: setIndex + 1, kg: weight, reps }]);
+    setSetIndex((i) => i + 1);
+    if (setIndex + 1 < totalSets) {
+      setRestLeft(ex.rest_seconds);
+      setResting(true);
+    }
+  }
+
+  const minutes = Math.floor(restLeft / 60);
+  const seconds = restLeft % 60;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-md gap-0 overflow-y-auto p-0">
+        {media ? (
+          <div className="overflow-hidden rounded-t-lg bg-muted">
+            {isVideo ? (
+              <video src={media} autoPlay loop muted playsInline className="w-full" />
+            ) : (
+              <img src={media} alt={ex.exercise_name} className="w-full" />
+            )}
+          </div>
+        ) : null}
+
+        <div className="space-y-4 p-5">
+          <DialogHeader className="text-left">
+            <DialogTitle>{ex.exercise_name}</DialogTitle>
+          </DialogHeader>
+
+          {finished ? (
+            <div className="rounded-2xl border border-chart-1/30 bg-chart-1/10 p-5 text-center">
+              <CheckCircle2 className="mx-auto h-8 w-8 text-chart-1" />
+              <p className="mt-2 font-semibold">Todas as séries concluídas!</p>
+              <p className="text-sm text-muted-foreground">
+                Feche e siga para o próximo exercício.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Série {setIndex + 1} de {totalSets}
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2.5">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setWeight((w) => Math.max(0, w - 2.5))}
+                      aria-label="Diminuir peso"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <span className="w-16 text-center text-4xl font-bold tabular-nums">
+                      {weight}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setWeight((w) => w + 2.5)}
+                      aria-label="Aumentar peso"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">kg</p>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2.5">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setReps((r) => Math.max(1, r - 1))}
+                      aria-label="Diminuir repetições"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <span className="w-10 text-center text-4xl font-bold tabular-nums">{reps}</span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setReps((r) => r + 1)}
+                      aria-label="Aumentar repetições"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">reps</p>
+                </div>
+              </div>
+
+              {resting ? (
+                <div className="flex items-center justify-between rounded-xl bg-accent/10 px-4 py-3">
+                  <div className="flex items-center gap-2 text-accent">
+                    <Timer className="h-4 w-4" />
+                    <span className="font-semibold tabular-nums">
+                      {minutes}:{String(seconds).padStart(2, "0")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">descanso</span>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => setRestLeft((s) => s + 30)}>
+                    +30s
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+
+          {doneSets.length > 0 ? (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Séries feitas
+              </p>
+              <div className="space-y-1.5">
+                {doneSets.map((s) => (
+                  <div key={s.set} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5 text-chart-1">
+                      <CheckCircle2 className="h-4 w-4" /> Série {s.set}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {s.kg} kg × {s.reps}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {!finished ? (
+            <Button size="lg" className="w-full" onClick={completeSet}>
+              Concluir série
+            </Button>
+          ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );
