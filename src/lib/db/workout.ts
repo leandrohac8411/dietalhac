@@ -109,6 +109,7 @@ export function useCompleteWorkout() {
 /** Cria a sessão que o modo de execução ao vivo usa para gravar cada série
  *  assim que ela é concluída (antes de "Finalizar treino" fechar a sessão). */
 export function useStartLiveSession() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (params: {
       workoutId: string;
@@ -127,11 +128,12 @@ export function useStartLiveSession() {
           cycle_position: params.cyclePosition,
           started_at: new Date().toISOString(),
         })
-        .select("id")
+        .select("id, started_at")
         .single();
       if (error) throw error;
-      return data.id as string;
+      return data;
     },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutSessions"] }),
   });
 }
 

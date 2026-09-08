@@ -96,6 +96,9 @@ type SessionSetRow = {
 };
 
 type SessionForCompare = {
+  id: string;
+  workout_id: string | null;
+  started_at: string;
   finished_at: string | null;
   workout_session_sets: SessionSetRow[];
 };
@@ -113,6 +116,99 @@ function previousSetsFor(sessions: SessionForCompare[], exerciseName: string): S
     .sort((a, b) => a.set_number - b.set_number);
 }
 
+/** Peso médio de gasto calórico em treino de força moderado (MET ~5). Aproximação
+ *  só para dar um número de referência durante o treino, não é preciso. */
+const WORKOUT_MET = 5;
+
+function estimateKcal(elapsedSeconds: number, weightKg: number) {
+  const minutes = elapsedSeconds / 60;
+  return Math.round(((WORKOUT_MET * 3.5 * weightKg) / 200) * minutes);
+}
+
+/** Controla a sessão "ao vivo" do treino atual: cria a sessão quando o usuário
+ *  clica em "Iniciar treino" (ou na primeira série concluída, o que vier
+ *  primeiro), mede o tempo decorrido e fecha a sessão ao finalizar a ficha. */
+function useLiveWorkoutSession({
+  workout,
+  planId,
+  sessions,
+  weightKg,
+}: {
+  workout: WorkoutWithExercises | null;
+  planId: string | undefined;
+  sessions: SessionForCompare[];
+  weightKg: number;
+}) {
+  const startLiveSession = useStartLiveSession();
+  const complete = useCompleteWorkout();
+  const [localSession, setLocalSession] = useState<{ id: string; startedAt: string } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    setLocalSession(null);
+  }, [workout?.id]);
+
+  const openSession = sessions.find((s) => s.workout_id === workout?.id && !s.finished_at);
+  const sessionId = openSession?.id ?? localSession?.id ?? null;
+  const startedAt = openSession?.started_at ?? localSession?.startedAt ?? null;
+  const isActive = !!sessionId;
+
+  useEffect(() => {
+    if (!isActive) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isActive]);
+
+  async function ensureSession(): Promise<string> {
+    if (sessionId) return sessionId;
+    if (!workout || !planId) throw new Error("Nenhum treino ativo hoje.");
+    const created = await startLiveSession.mutateAsync({
+      workoutId: workout.id,
+      workoutPlanId: planId,
+      workoutName: workout.name,
+      cyclePosition: workout.cycle_position ?? workout.sort_order,
+    });
+    setLocalSession({ id: created.id, startedAt: created.started_at });
+    return created.id;
+  }
+
+  function finish() {
+    if (!workout) return;
+    complete.mutate(
+      { ...workout, sessionId },
+      {
+        onSuccess: () => {
+          setLocalSession(null);
+          toast.success("Ficha concluída", {
+            description: "O próximo treino do ciclo já está preparado.",
+          });
+        },
+        onError: (error) =>
+          toast.error("Não foi possível concluir", {
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  const elapsedSeconds = startedAt
+    ? Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000))
+    : 0;
+
+  return {
+    isActive,
+    elapsedSeconds,
+    estimatedKcal: estimateKcal(elapsedSeconds, weightKg),
+    ensureSession,
+    start: () => void ensureSession().catch(() => undefined),
+    finish,
+    starting: startLiveSession.isPending,
+    finishing: complete.isPending,
+  };
+}
+
+type LiveSession = ReturnType<typeof useLiveWorkoutSession>;
+
 function Treino() {
   const profile = useProfile();
   const goal = useActiveGoal();
@@ -121,6 +217,23 @@ function Treino() {
   const prefs = usePreferences();
   const sessions = useSessions();
   const generate = useGenerateWorkout();
+
+  // Hooks precisam ser chamados sempre na mesma ordem, então os derivados do
+  // plano (que pode ainda não existir) ficam aqui em cima, antes dos returns
+  // antecipados de loading/onboarding/sem-plano.
+  const planData = workoutPlan.data;
+  const workoutsForCycle = planData
+    ? uniqueCycleWorkouts((planData.workouts ?? []) as unknown as WorkoutWithExercises[])
+    : [];
+  const currentWorkoutForCycle = planData
+    ? currentCycleWorkout(planData.plan, workoutsForCycle)
+    : null;
+  const liveSession = useLiveWorkoutSession({
+    workout: currentWorkoutForCycle,
+    planId: planData?.plan.id,
+    sessions: sessions.data ?? [],
+    weightKg: profile.data?.current_weight_kg ?? 70,
+  });
 
   if (profile.isLoading || workoutPlan.isLoading) return <LoadingBlock rows={5} />;
 
@@ -177,8 +290,8 @@ function Treino() {
     );
   }
 
-  const workouts = uniqueCycleWorkouts((data.workouts ?? []) as unknown as WorkoutWithExercises[]);
-  const currentWorkout = currentCycleWorkout(data.plan, workouts);
+  const workouts = workoutsForCycle;
+  const currentWorkout = currentWorkoutForCycle;
   const splitLabel = SPLIT_LABELS[data.plan.split_type] ?? data.plan.split_type;
   const catalogByName = new Map((exercises.data ?? []).map((e) => [e.name, e] as const));
 
@@ -194,6 +307,7 @@ function Treino() {
         currentWorkout={currentWorkout}
         trainingWeekdays={prefs.data?.training_weekdays ?? null}
         sessions={sessions.data ?? []}
+        liveSession={liveSession}
       />
 
       <CycleStatus workouts={workouts} currentPosition={data.plan.current_cycle_position} />
@@ -201,6 +315,7 @@ function Treino() {
       <WorkoutList
         workouts={workouts}
         currentWorkout={currentWorkout}
+        liveSession={liveSession}
         exercises={exercises.data ?? []}
         catalogByName={catalogByName}
         planId={data.plan.id}
@@ -222,6 +337,7 @@ function WorkoutList({
   catalogByName,
   planId,
   sessions,
+  liveSession,
 }: {
   workouts: WorkoutWithExercises[];
   currentWorkout: WorkoutWithExercises | null;
@@ -229,6 +345,7 @@ function WorkoutList({
   catalogByName: Map<string, Exercise>;
   planId: string;
   sessions: SessionForCompare[];
+  liveSession: LiveSession;
 }) {
   const [showOthers, setShowOthers] = useState(false);
   const others = workouts.filter((w) => w.id !== currentWorkout?.id);
@@ -244,6 +361,7 @@ function WorkoutList({
             isCurrent
             planId={planId}
             sessions={sessions}
+            liveSession={liveSession}
           />
         </div>
       ) : null}
@@ -287,6 +405,7 @@ function WorkoutCard({
   isCurrent,
   planId,
   sessions,
+  liveSession,
 }: {
   workout: WorkoutWithExercises;
   exercises: Exercise[];
@@ -294,40 +413,26 @@ function WorkoutCard({
   isCurrent: boolean;
   planId: string;
   sessions: SessionForCompare[];
+  liveSession?: LiveSession;
 }) {
   const list = workout.workout_exercises ?? [];
-  const complete = useCompleteWorkout();
   const startLiveSession = useStartLiveSession();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  /** Cria a sessão do modo ao vivo na primeira série concluída e reaproveita
-   *  o mesmo id para as séries seguintes deste treino. */
+  /** Fichas fora do ciclo atual não têm o timer/hero compartilhado — criam sua
+   *  própria sessão sob demanda, na primeira série concluída. A ficha atual usa
+   *  a sessão iniciada em "Iniciar treino" no card de hoje. */
   async function getSessionId(): Promise<string> {
+    if (liveSession) return liveSession.ensureSession();
     if (activeSessionId) return activeSessionId;
-    const id = await startLiveSession.mutateAsync({
+    const created = await startLiveSession.mutateAsync({
       workoutId: workout.id,
       workoutPlanId: planId,
       workoutName: workout.name,
       cyclePosition: workout.cycle_position ?? workout.sort_order,
     });
-    setActiveSessionId(id);
-    return id;
-  }
-
-  function finish() {
-    complete.mutate(
-      { ...workout, sessionId: activeSessionId },
-      {
-        onSuccess: () =>
-          toast.success("Ficha concluída", {
-            description: "O próximo treino do ciclo já está preparado.",
-          }),
-        onError: (error) =>
-          toast.error("Não foi possível concluir", {
-            description: error instanceof Error ? error.message : "Tente novamente.",
-          }),
-      },
-    );
+    setActiveSessionId(created.id);
+    return created.id;
   }
 
   return (
@@ -345,18 +450,11 @@ function WorkoutCard({
       className="min-w-0 overflow-hidden p-4 sm:p-6"
     >
       {isCurrent ? (
-        <div className="mb-5 flex flex-col gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold text-accent">
-            <CheckCircle2 className="h-4 w-4" /> Treino atual
-          </div>
-          <Button
-            size="sm"
-            onClick={finish}
-            disabled={complete.isPending}
-            className="w-full sm:w-auto"
-          >
-            {complete.isPending ? "Finalizando..." : "Finalizar treino"}
-          </Button>
+        <div className="mb-5 flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2.5">
+          <CheckCircle2 className="h-4 w-4 text-accent" />
+          <span className="text-sm font-semibold text-accent">
+            Treino atual{liveSession?.isActive ? " · em andamento" : ""}
+          </span>
         </div>
       ) : null}
       {list.length === 0 ? (
@@ -388,14 +486,25 @@ function sameDay(a: Date, b: Date) {
   );
 }
 
+function formatElapsed(totalSeconds: number) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 function DayFocus({
   currentWorkout,
   trainingWeekdays,
   sessions,
+  liveSession,
 }: {
   currentWorkout: WorkoutWithExercises | null;
   trainingWeekdays: number[] | null;
   sessions: { started_at: string }[];
+  liveSession: LiveSession;
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -475,25 +584,68 @@ function DayFocus({
           <p className="mt-1 text-sm opacity-90">
             {currentWorkout.muscle_groups ?? "Treino completo"}
           </p>
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
-            <span className="flex items-center gap-1.5">
-              <ListChecks className="h-4 w-4" /> {exerciseCount} exercícios
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CalendarCheck className="h-4 w-4" /> ~{currentWorkout.estimated_min ?? 60} min
-            </span>
-          </div>
+
+          {liveSession.isActive ? (
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-black/10 px-3 py-2.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                  <Timer className="h-3.5 w-3.5" /> Tempo
+                </p>
+                <p className="mt-0.5 text-2xl font-bold tabular-nums">
+                  {formatElapsed(liveSession.elapsedSeconds)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-black/10 px-3 py-2.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                  <Flame className="h-3.5 w-3.5" /> Kcal (aprox.)
+                </p>
+                <p className="mt-0.5 text-2xl font-bold tabular-nums">
+                  {liveSession.estimatedKcal}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+              <span className="flex items-center gap-1.5">
+                <ListChecks className="h-4 w-4" /> {exerciseCount} exercícios
+              </span>
+              <span className="flex items-center gap-1.5">
+                <CalendarCheck className="h-4 w-4" /> ~{currentWorkout.estimated_min ?? 60} min
+              </span>
+            </div>
+          )}
+
           <Button
             size="lg"
             variant="secondary"
             className="mt-5 w-full sm:w-auto"
-            onClick={() =>
+            disabled={liveSession.starting || liveSession.finishing}
+            onClick={() => {
+              if (liveSession.isActive) {
+                liveSession.finish();
+                return;
+              }
+              liveSession.start();
               document
                 .getElementById(`workout-${currentWorkout.id}`)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" })
-            }
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
           >
-            <Play className="mr-1.5 h-4 w-4 fill-current" /> Iniciar treino
+            {liveSession.isActive ? (
+              liveSession.finishing ? (
+                "Finalizando..."
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-1.5 h-4 w-4" /> Finalizar treino
+                </>
+              )
+            ) : liveSession.starting ? (
+              "Iniciando..."
+            ) : (
+              <>
+                <Play className="mr-1.5 h-4 w-4 fill-current" /> Iniciar treino
+              </>
+            )}
           </Button>
         </div>
       ) : (
