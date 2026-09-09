@@ -70,6 +70,10 @@ export const analyzeMealPhoto = createServerFn({ method: "POST" })
           body: JSON.stringify({
             model: process.env["GROQ_VISION_MODEL"] || "qwen/qwen3.8-27b",
             temperature: 0.3,
+            // Sem isso a Groq reserva o teto padrão do modelo como "saída esperada"
+            // e estoura o limite de tokens de saída por minuto (OTPM) da conta antes
+            // mesmo de gerar qualquer coisa — 700 cobre os 12 itens do schema com folga.
+            max_tokens: 700,
             messages: [
               {
                 role: "system",
