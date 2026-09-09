@@ -2,25 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-// Catálogo em formato compacto ([índice, nome]) em vez de objetos com UUID
-// por extenso — o plano gratuito da Groq tem um limite de tokens de entrada
-// por minuto bem apertado, e um UUID sozinho já custa ~12 tokens por item.
+// Não enviamos mais o catálogo de alimentos aqui: com o catálogo já passando
+// de ~400 itens, só a lista sozinha consumia a maior parte do limite de tokens
+// de entrada por minuto (ITPM) da Groq. A IA estima os macros direto pela foto;
+// o casamento com o catálogo (quando existe um item parecido) agora é feito no
+// cliente, sem custo de token nenhum.
 const inputSchema = z.object({
   imageBase64: z.string().min(100).max(4_000_000), // data: URI completa (com prefixo)
-  foods: z
-    .array(z.tuple([z.number().int().min(0), z.string()]))
-    .min(1)
-    .max(400),
 });
 
-// food_item_index nulo = a IA não achou equivalente no catálogo; nesse caso os
-// macros vêm da própria estimativa da IA (marcados como "estimado").
 const outputSchema = z.object({
   items: z
     .array(
       z.object({
         name: z.string().min(1).max(80),
-        food_item_index: z.number().int().min(0).nullable(),
         grams: z.number().min(5).max(1000),
         calories: z.number().min(0).max(3000),
         protein_g: z.number().min(0).max(300),
@@ -78,15 +73,11 @@ export const analyzeMealPhoto = createServerFn({ method: "POST" })
               {
                 role: "system",
                 content:
-                  "Você identifica os alimentos visíveis em uma foto de prato de comida brasileira e estima a porção de cada um. A lista `foods` traz pares [indice, nome]. Para cada item da foto, tente achar o alimento mais parecido na lista (mesmo tipo de preparo, ex.: arroz branco cozido, feijão carioca cozido, bife de contrafilé grelhado) e use esse número como food_item_index. Se não houver equivalente razoável na lista, deixe food_item_index nulo e estime você mesmo as calorias e macros (proteína, carboidrato, gordura em gramas) da porção que você vê na foto. Estime a gramagem realista de cada porção pelo tamanho no prato. Nunca invente um índice que não esteja na lista. Ignore o prato, talheres e coisas que não são comida. Se a foto não mostrar comida com clareza, retorne items vazio.",
+                  "Você identifica os alimentos visíveis em uma foto de prato de comida brasileira e estima a porção e os macros de cada um (calorias, proteína, carboidrato e gordura em gramas), pelo que vê na foto. Estime a gramagem realista de cada porção pelo tamanho no prato. Ignore o prato, talheres e coisas que não são comida. Se a foto não mostrar comida com clareza, retorne items vazio.",
               },
               {
                 role: "user",
                 content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify({ foods: data.foods }),
-                  },
                   {
                     type: "image_url",
                     image_url: { url: data.imageBase64 },
@@ -110,18 +101,9 @@ export const analyzeMealPhoto = createServerFn({ method: "POST" })
                       items: {
                         type: "object",
                         additionalProperties: false,
-                        required: [
-                          "name",
-                          "food_item_index",
-                          "grams",
-                          "calories",
-                          "protein_g",
-                          "carbs_g",
-                          "fat_g",
-                        ],
+                        required: ["name", "grams", "calories", "protein_g", "carbs_g", "fat_g"],
                         properties: {
                           name: { type: "string" },
-                          food_item_index: { type: ["integer", "null"] },
                           grams: { type: "number", minimum: 5, maximum: 1000 },
                           calories: { type: "number", minimum: 0, maximum: 3000 },
                           protein_g: { type: "number", minimum: 0, maximum: 300 },
@@ -172,10 +154,7 @@ export const analyzeMealPhoto = createServerFn({ method: "POST" })
         return null;
       }
 
-      const validIndexes = new Set(data.foods.map(([index]) => index));
-      return parsed.data.items.filter(
-        (item) => item.food_item_index === null || validIndexes.has(item.food_item_index),
-      );
+      return parsed.data.items;
     } catch (err) {
       console.error(
         "[analyzeMealPhoto] exceção:",

@@ -43,6 +43,47 @@ type PhotoMealCaptureProps = {
   onItemsConfirmed: (items: DraftComponent[]) => void;
 };
 
+function normalizeFoodName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Tenta casar o nome identificado pela IA com um item do catálogo local, sem
+ * gastar nenhum token (a IA não vê mais o catálogo — veja meal-photo-ai.functions.ts).
+ * Prioriza igualdade exata, depois um nome contendo o outro, depois sobreposição
+ * de palavras; abaixo de um score mínimo, não casa (a estimativa da IA prevalece).
+ */
+function matchFoodItem(aiName: string, foods: FoodItem[]): FoodItem | undefined {
+  const target = normalizeFoodName(aiName);
+  if (!target) return undefined;
+
+  let best: { food: FoodItem; score: number } | undefined;
+  for (const food of foods) {
+    const candidate = normalizeFoodName(food.name);
+    if (!candidate) continue;
+
+    let score = 0;
+    if (candidate === target) {
+      score = 100;
+    } else if (candidate.includes(target) || target.includes(candidate)) {
+      score = Math.min(candidate.length, target.length) >= 4 ? 70 : 0;
+    } else {
+      const targetWords = new Set(target.split(/\s+/).filter(Boolean));
+      const candidateWords = candidate.split(/\s+/).filter(Boolean);
+      const overlap = candidateWords.filter((w) => targetWords.has(w)).length;
+      const denom = Math.max(targetWords.size, candidateWords.length, 1);
+      score = overlap > 0 ? (overlap / denom) * 60 : 0;
+    }
+
+    if (score > 0 && (!best || score > best.score)) best = { food, score };
+  }
+  return best && best.score >= 55 ? best.food : undefined;
+}
+
 /**
  * Reduz a foto para no máximo `maxDim` px no lado maior e recodifica como
  * JPEG comprimido. Fotos de câmera saem com vários megapixels — sem isso, o
@@ -117,12 +158,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
     setAnalyzing(true);
     try {
       const imageBase64 = await resizeImageToDataUrl(photoFile);
-      const result = await analyzeMealPhoto({
-        data: {
-          imageBase64,
-          foods: foods.map((f, i) => [i, f.name] as [number, string]),
-        },
-      });
+      const result = await analyzeMealPhoto({ data: { imageBase64 } });
 
       if (result === null) {
         toast.error("Não foi possível analisar a foto agora", {
@@ -139,7 +175,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
 
       setIdentified(
         result.map((item) => {
-          const catalog = item.food_item_index !== null ? foods[item.food_item_index] : undefined;
+          const catalog = matchFoodItem(item.name, foods);
           const grams = Math.max(1, Math.round(item.grams));
           if (catalog && catalog.portion > 0) {
             const perGram = {
