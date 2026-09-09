@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { buildWorkoutExercises, generateWorkoutPlan } from "@/lib/plan-generator";
+import { initialCyclePosition } from "@/lib/workout-cycle";
 import { requireUserId } from "./shared";
 import type { Exercise } from "./types";
 
@@ -103,6 +104,24 @@ export function useCompleteWorkout() {
       void qc.invalidateQueries({ queryKey: ["workoutSessions"] });
       void qc.invalidateQueries({ queryKey: ["workoutPlan"] });
     },
+  });
+}
+
+/** Ajusta manualmente qual ficha do ciclo (A/B/C...) é a "atual" — útil quando
+ *  o alinhamento automático por dia da semana não bate com o que a pessoa quer. */
+export function useSetCyclePosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { planId: string; position: number }) => {
+      const uid = await requireUserId();
+      const { error } = await supabase
+        .from("workout_plans")
+        .update({ current_cycle_position: params.position })
+        .eq("id", params.planId)
+        .eq("user_id", uid);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
   });
 }
 
@@ -251,7 +270,10 @@ export function useGenerateWorkout() {
           duration_min: durationMin,
           place,
           is_active: true,
-          current_cycle_position: 0,
+          current_cycle_position: initialCyclePosition(
+            prefs?.training_weekdays ?? null,
+            workouts.length,
+          ),
           cycle_length: workouts.length,
         })
         .select("id")

@@ -50,3 +50,31 @@ export function defaultTrainingWeekdays(days: number): number[] {
   };
   return schedules[Math.min(7, Math.max(1, Math.round(days)))] ?? schedules[3]!;
 }
+
+/**
+ * Posição inicial do ciclo ao gerar um plano novo, alinhada ao dia da semana
+ * de hoje — ex.: ciclo ABC nas segundas/quartas/sextas gerado numa quarta já
+ * começa na letra B, em vez de sempre cair na A independente do dia.
+ * Só faz sentido quando cada letra do ciclo corresponde a exatamente um dia
+ * de treino da semana (o caso comum: AB, ABC, upper/lower...); fora disso
+ * (ex.: mais fichas que dias de treino) volta pra posição 0 como antes.
+ */
+export function initialCyclePosition(
+  trainingWeekdays: number[] | null | undefined,
+  cycleLength: number,
+  today: Date = new Date(),
+): number {
+  if (!trainingWeekdays || trainingWeekdays.length !== cycleLength || cycleLength < 2) return 0;
+
+  const sorted = [...trainingWeekdays].sort((a, b) => a - b);
+  const todayDow = today.getDay();
+
+  const exactIndex = sorted.indexOf(todayDow);
+  if (exactIndex !== -1) return exactIndex;
+
+  // Hoje não é dia de treino: usa o dia de treino mais recente que já passou
+  // nesta semana; se nenhum passou ainda, assume o último da semana anterior.
+  const pastDays = sorted.filter((d) => d < todayDow);
+  if (pastDays.length > 0) return sorted.indexOf(pastDays[pastDays.length - 1]!);
+  return sorted.length - 1;
+}

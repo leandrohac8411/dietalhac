@@ -59,6 +59,7 @@ import {
   useProfile,
   useRegenerateWorkoutDay,
   useSessions,
+  useSetCyclePosition,
   useStartLiveSession,
   useUpdateWorkoutExercise,
   useWorkoutPlan,
@@ -310,7 +311,11 @@ function Treino() {
         liveSession={liveSession}
       />
 
-      <CycleStatus workouts={workouts} currentPosition={data.plan.current_cycle_position} />
+      <CycleStatus
+        workouts={workouts}
+        currentPosition={data.plan.current_cycle_position}
+        planId={data.plan.id}
+      />
 
       <WorkoutList
         workouts={workouts}
@@ -664,10 +669,14 @@ function DayFocus({
 function CycleStatus({
   workouts,
   currentPosition,
+  planId,
 }: {
   workouts: WorkoutWithExercises[];
   currentPosition: number;
+  planId: string;
 }) {
+  const setPosition = useSetCyclePosition();
+
   return (
     <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -676,7 +685,8 @@ function CycleStatus({
             Sequência contínua
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Descansos e faltas não reiniciam o ciclo. Ele avança ao concluir a ficha atual.
+            Descansos e faltas não reiniciam o ciclo. Ele avança ao concluir a ficha atual. Toque
+            numa letra pra trocar qual é a atual.
           </p>
         </div>
         <div className="flex items-center gap-2" aria-label="Sequência das fichas">
@@ -685,17 +695,22 @@ function CycleStatus({
             const active = position === currentPosition;
             return (
               <div key={workout.id} className="flex items-center gap-2">
-                <span
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!active) setPosition.mutate({ planId, position });
+                  }}
+                  disabled={setPosition.isPending}
                   className={cn(
                     "grid h-9 min-w-9 place-items-center rounded-full border px-2 text-xs font-bold transition-colors",
                     active
                       ? "border-accent bg-accent text-accent-foreground ring-4 ring-accent/10"
-                      : "border-border bg-muted/35 text-muted-foreground",
+                      : "border-border bg-muted/35 text-muted-foreground hover:border-accent/50 hover:text-foreground",
                   )}
-                  title={workout.name}
+                  title={`Definir ${workout.name} como treino atual`}
                 >
                   {cycleLetter(workout.name, index)}
-                </span>
+                </button>
                 {index < workouts.length - 1 ? (
                   <span className="h-px w-3 bg-border sm:w-5" />
                 ) : null}
