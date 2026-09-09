@@ -198,11 +198,45 @@ export async function runScheduledPushes(now = new Date()) {
     // Limita a 3h pra não ficar cutucando uma sessão que a pessoa esqueceu aberta.
     supabaseAdmin
       .from("workout_sessions")
-      .select("id,user_id,started_at,workout_name")
+      .select("id,user_id,workout_id,started_at,workout_name")
       .in("user_id", userIds)
       .is("finished_at", null)
       .gte("started_at", new Date(now.getTime() - 3 * 60 * 60_000).toISOString()),
   ]);
+
+  // Progresso real das sessões em aberto: quantos exercícios a ficha tem no
+  // total e quantos já têm ao menos uma série registrada nessa sessão.
+  const sessionWorkoutIds = [
+    ...new Set((liveSessions ?? []).flatMap((s) => (s.workout_id ? [s.workout_id] : []))),
+  ];
+  const sessionIds = (liveSessions ?? []).map((s) => s.id);
+  const [{ data: workoutExerciseRows }, { data: sessionSetRows }] = await Promise.all([
+    sessionWorkoutIds.length
+      ? supabaseAdmin
+          .from("workout_exercises")
+          .select("workout_id")
+          .in("workout_id", sessionWorkoutIds)
+      : Promise.resolve({ data: [] as { workout_id: string }[] }),
+    sessionIds.length
+      ? supabaseAdmin
+          .from("workout_session_sets")
+          .select("session_id,exercise_name")
+          .in("session_id", sessionIds)
+      : Promise.resolve({ data: [] as { session_id: string; exercise_name: string }[] }),
+  ]);
+  const totalExercisesByWorkout = new Map<string, number>();
+  for (const row of workoutExerciseRows ?? []) {
+    totalExercisesByWorkout.set(
+      row.workout_id,
+      (totalExercisesByWorkout.get(row.workout_id) ?? 0) + 1,
+    );
+  }
+  const doneExercisesBySession = new Map<string, Set<string>>();
+  for (const row of sessionSetRows ?? []) {
+    const set = doneExercisesBySession.get(row.session_id) ?? new Set<string>();
+    set.add(row.exercise_name);
+    doneExercisesBySession.set(row.session_id, set);
+  }
 
   const planIds = (plans ?? []).map((plan) => plan.id);
   const { data: meals } = planIds.length
@@ -284,21 +318,35 @@ export async function runScheduledPushes(now = new Date()) {
     // Aviso periódico de "treino em andamento" (modo de execução ao vivo). Não
     // dá pra ter um cronômetro ao vivo na tela bloqueada num site — isso é uma
     // limitação do iOS/navegador, não do app — então o melhor possível é uma
-    // notificação a cada ~10 min mostrando o tempo decorrido, até finalizar.
+    // notificação a cada ~15 min (treino médio de ~60 min, ~2 min por
+    // exercício) mostrando o progresso real: quantos exercícios já foram
+    // feitos e quantos faltam, além do tempo decorrido.
     if (preference.workout_enabled) {
       for (const session of liveSessionsByUser.get(preference.user_id) ?? []) {
         const elapsedMinutes = Math.floor(
           (now.getTime() - new Date(session.started_at).getTime()) / 60_000,
         );
-        if (elapsedMinutes < 10 || elapsedMinutes > 180) continue;
-        const bucket = Math.floor(elapsedMinutes / 10);
+        if (elapsedMinutes < 15 || elapsedMinutes > 180) continue;
+        const bucket = Math.floor(elapsedMinutes / 15);
+
+        const totalExercises = session.workout_id
+          ? (totalExercisesByWorkout.get(session.workout_id) ?? 0)
+          : 0;
+        const doneExercises = doneExercisesBySession.get(session.id)?.size ?? 0;
+        const progress =
+          totalExercises > 0 ? `${doneExercises} de ${totalExercises} exercícios` : null;
+
         sent += await deliverEvent(
           devices,
           preference.user_id,
           `live-workout:${session.id}:${bucket}`,
           {
-            title: `Treino em andamento — ${elapsedMinutes} min`,
-            body: `${session.workout_name ?? "Seu treino"} segue rolando. Toque para continuar de onde parou.`,
+            title: progress
+              ? `Treino em andamento — ${progress}`
+              : `Treino em andamento — ${elapsedMinutes} min`,
+            body: progress
+              ? `${elapsedMinutes} min decorridos. Faltam ${Math.max(0, totalExercises - doneExercises)} exercícios em ${session.workout_name ?? "sua ficha"}.`
+              : `${session.workout_name ?? "Seu treino"} segue rolando há ${elapsedMinutes} min. Toque para continuar de onde parou.`,
             url: "/treino",
             tag: `live-workout-${session.id}`,
           },
