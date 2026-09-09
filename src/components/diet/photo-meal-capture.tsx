@@ -345,14 +345,19 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2 pt-1">
-                <Button type="button" variant="outline" className="flex-1" onClick={clearPhoto}>
+              <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:flex-1"
+                  onClick={clearPhoto}
+                >
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Refazer foto
                 </Button>
                 <Button
                   type="button"
-                  className="flex-1"
+                  className="w-full sm:flex-1"
                   disabled={identified.length === 0}
                   onClick={confirmItems}
                 >
