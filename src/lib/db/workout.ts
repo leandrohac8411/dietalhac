@@ -59,7 +59,11 @@ export function useWorkoutPlan() {
         .from("workouts")
         .select("*, workout_exercises(*)")
         .eq("workout_plan_id", plan.id)
-        .order("sort_order");
+        .order("sort_order")
+        // Sem isso, os exercícios de cada ficha vêm em ordem arbitrária do
+        // banco (não pela sort_order que os agrupa por grupo muscular) — daí
+        // a sensação de "misturado" (peito, ombro e trapézio intercalados).
+        .order("sort_order", { referencedTable: "workout_exercises" });
       if (wErr) throw wErr;
       return { plan, workouts: workouts ?? [] };
     },
