@@ -168,28 +168,41 @@ export async function runScheduledPushes(now = new Date()) {
   if (!preferences?.length) return { users: 0, sent: 0 };
 
   const userIds = preferences.map((preference) => preference.user_id);
-  const [{ data: subscriptions }, { data: plans }, { data: routines }, { data: goals }] =
-    await Promise.all([
-      supabaseAdmin
-        .from("push_subscriptions")
-        .select("*")
-        .in("user_id", userIds)
-        .is("disabled_at", null),
-      supabaseAdmin
-        .from("meal_plans")
-        .select("id,user_id")
-        .in("user_id", userIds)
-        .eq("is_active", true),
-      supabaseAdmin
-        .from("user_preferences")
-        .select("user_id,training_time,training_weekdays,wake_time,sleep_time")
-        .in("user_id", userIds),
-      supabaseAdmin
-        .from("user_goals")
-        .select("user_id,water_ml")
-        .in("user_id", userIds)
-        .eq("is_active", true),
-    ]);
+  const [
+    { data: subscriptions },
+    { data: plans },
+    { data: routines },
+    { data: goals },
+    { data: liveSessions },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("push_subscriptions")
+      .select("*")
+      .in("user_id", userIds)
+      .is("disabled_at", null),
+    supabaseAdmin
+      .from("meal_plans")
+      .select("id,user_id")
+      .in("user_id", userIds)
+      .eq("is_active", true),
+    supabaseAdmin
+      .from("user_preferences")
+      .select("user_id,training_time,training_weekdays,wake_time,sleep_time")
+      .in("user_id", userIds),
+    supabaseAdmin
+      .from("user_goals")
+      .select("user_id,water_ml")
+      .in("user_id", userIds)
+      .eq("is_active", true),
+    // Sessões do modo de execução ao vivo ainda em aberto (sem finished_at).
+    // Limita a 3h pra não ficar cutucando uma sessão que a pessoa esqueceu aberta.
+    supabaseAdmin
+      .from("workout_sessions")
+      .select("id,user_id,started_at,workout_name")
+      .in("user_id", userIds)
+      .is("finished_at", null)
+      .gte("started_at", new Date(now.getTime() - 3 * 60 * 60_000).toISOString()),
+  ]);
 
   const planIds = (plans ?? []).map((plan) => plan.id);
   const { data: meals } = planIds.length
@@ -206,6 +219,12 @@ export async function runScheduledPushes(now = new Date()) {
     subscriptionsByUser.set(subscription.user_id, current);
   }
   const routineByUser = new Map((routines ?? []).map((routine) => [routine.user_id, routine]));
+  const liveSessionsByUser = new Map<string, NonNullable<typeof liveSessions>>();
+  for (const session of liveSessions ?? []) {
+    const current = liveSessionsByUser.get(session.user_id) ?? [];
+    current.push(session);
+    liveSessionsByUser.set(session.user_id, current);
+  }
   const waterTargetByUser = new Map(
     (goals ?? []).map((goal) => [goal.user_id, goal.water_ml ?? 2500]),
   );
@@ -260,6 +279,31 @@ export async function runScheduledPushes(now = new Date()) {
           url: "/treino",
           tag: "workout-reminder",
         });
+    }
+
+    // Aviso periódico de "treino em andamento" (modo de execução ao vivo). Não
+    // dá pra ter um cronômetro ao vivo na tela bloqueada num site — isso é uma
+    // limitação do iOS/navegador, não do app — então o melhor possível é uma
+    // notificação a cada ~10 min mostrando o tempo decorrido, até finalizar.
+    if (preference.workout_enabled) {
+      for (const session of liveSessionsByUser.get(preference.user_id) ?? []) {
+        const elapsedMinutes = Math.floor(
+          (now.getTime() - new Date(session.started_at).getTime()) / 60_000,
+        );
+        if (elapsedMinutes < 10 || elapsedMinutes > 180) continue;
+        const bucket = Math.floor(elapsedMinutes / 10);
+        sent += await deliverEvent(
+          devices,
+          preference.user_id,
+          `live-workout:${session.id}:${bucket}`,
+          {
+            title: `Treino em andamento — ${elapsedMinutes} min`,
+            body: `${session.workout_name ?? "Seu treino"} segue rolando. Toque para continuar de onde parou.`,
+            url: "/treino",
+            tag: `live-workout-${session.id}`,
+          },
+        );
+      }
     }
 
     if (preference.water_enabled && isHydrationCheckTime(clock.minutes)) {
