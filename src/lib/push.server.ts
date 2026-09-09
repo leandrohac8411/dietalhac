@@ -318,16 +318,15 @@ export async function runScheduledPushes(now = new Date()) {
     // Aviso periódico de "treino em andamento" (modo de execução ao vivo). Não
     // dá pra ter um cronômetro ao vivo na tela bloqueada num site — isso é uma
     // limitação do iOS/navegador, não do app — então o melhor possível é uma
-    // notificação a cada ~15 min (treino médio de ~60 min, ~2 min por
-    // exercício) mostrando o progresso real: quantos exercícios já foram
-    // feitos e quantos faltam, além do tempo decorrido.
+    // notificação a cada ~5 min mostrando o progresso real: quantos
+    // exercícios já foram feitos e quantos faltam, além do tempo decorrido.
     if (preference.workout_enabled) {
       for (const session of liveSessionsByUser.get(preference.user_id) ?? []) {
         const elapsedMinutes = Math.floor(
           (now.getTime() - new Date(session.started_at).getTime()) / 60_000,
         );
-        if (elapsedMinutes < 15 || elapsedMinutes > 180) continue;
-        const bucket = Math.floor(elapsedMinutes / 15);
+        if (elapsedMinutes < 5 || elapsedMinutes > 180) continue;
+        const bucket = Math.floor(elapsedMinutes / 5);
 
         const totalExercises = session.workout_id
           ? (totalExercisesByWorkout.get(session.workout_id) ?? 0)
