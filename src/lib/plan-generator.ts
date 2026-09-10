@@ -1191,15 +1191,12 @@ function pickExercisesByGroup(params: {
   limit: number;
   avoidedNames?: Set<string>;
   usedNames?: Set<string>;
-  preferredNames?: string[];
   place?: string;
   equipment?: string[] | null;
   experience?: string | null;
 }): ExerciseRow[] {
   const avoided = params.avoidedNames ?? new Set<string>();
   const used = params.usedNames ?? new Set<string>();
-  const preferred = new Map((params.preferredNames ?? []).map((name, index) => [name, index]));
-  const rank = (exercise: ExerciseRow) => preferred.get(exercise.name) ?? 999;
   const placeRank = (exercise: ExerciseRow) =>
     params.place === "gym" ? (exercise.place === "gym" ? 0 : 1) : 0;
   const mediaRank = (exercise: ExerciseRow) => (exercise.media_url ? 0 : 1);
@@ -1208,6 +1205,8 @@ function pickExercisesByGroup(params: {
     if (params.experience === "intermediario") return exercise.difficulty === "avancado" ? 1 : 0;
     return 0;
   };
+  // Curadoria por grupo pesa mais que "não repetir do plano anterior": o básico
+  // que funciona vem primeiro, e regenerar não empurra pra exercícios piores.
   const buckets = params.groups.map((group) =>
     shuffled(
       params.pool.filter(
@@ -1221,10 +1220,10 @@ function pickExercisesByGroup(params: {
       (a, b) =>
         mediaRank(a) - mediaRank(b) ||
         difficultyRank(a) - difficultyRank(b) ||
-        placeRank(a) - placeRank(b) ||
-        Number(avoided.has(a.name)) - Number(avoided.has(b.name)) ||
         Number(used.has(a.name)) - Number(used.has(b.name)) ||
-        rank(a) - rank(b),
+        priorityRank(a) - priorityRank(b) ||
+        placeRank(a) - placeRank(b) ||
+        Number(avoided.has(a.name)) - Number(avoided.has(b.name)),
     ),
   );
   const selected: ExerciseRow[] = [];
@@ -1237,6 +1236,8 @@ function pickExercisesByGroup(params: {
         .sort(
           (a, b) =>
             Number(!a.media_url) - Number(!b.media_url) ||
+            Number(used.has(a.name)) - Number(used.has(b.name)) ||
+            priorityRank(a) - priorityRank(b) ||
             (patternUse.get(movementPattern(a)) ?? 0) - (patternUse.get(movementPattern(b)) ?? 0),
         )[0];
       if (!next) continue;
@@ -1249,10 +1250,28 @@ function pickExercisesByGroup(params: {
     }
   }
 
+  // Garante ao menos um composto por ficha de força: se a seleção só trouxe
+  // isoladores (ex.: 2ª sessão de glúteo em que os compostos já foram usados
+  // noutro dia), troca o último isolador pelo composto nº1 de um grupo do dia.
+  const strengthGroups = params.groups.filter((g) => g !== "cardio");
+  const hasCompound = selected.some((e) => e.muscle_group !== "cardio" && isCompoundPattern(e));
+  if (!hasCompound && strengthGroups.length > 0) {
+    for (const group of strengthGroups) {
+      const main = (GROUP_EXERCISE_PRIORITY[group] ?? [])
+        .map((name) => params.pool.find((p) => p.name === name && p.muscle_group === group))
+        .find((ex): ex is ExerciseRow => !!ex && isCompoundPattern(ex));
+      if (main && !selected.some((e) => e.id === main.id)) {
+        const dropIndex = selected.findIndex((e) => !isCompoundPattern(e));
+        if (dropIndex >= 0) selected.splice(dropIndex, 1);
+        selected.push(main);
+        break;
+      }
+    }
+  }
+
   // A seleção acontece em rodízio para dividir corretamente as vagas entre os
-  // grupos. A execução, porém, deve vir em blocos musculares: conclui todos os
-  // exercícios do primeiro grupo antes de iniciar o próximo. Mantemos a ordem
-  // declarada no blueprint e deixamos cardio sempre por último.
+  // grupos. A execução vem em blocos musculares (todo o grupo 1 antes do grupo
+  // 2), e dentro de cada bloco na ordem curada — composto pesado primeiro.
   const groupOrder = new Map(params.groups.map((group, index) => [group, index]));
   return selected
     .map((exercise, selectionOrder) => ({ exercise, selectionOrder }))
@@ -1260,6 +1279,7 @@ function pickExercisesByGroup(params: {
       (a, b) =>
         (groupOrder.get(a.exercise.muscle_group) ?? params.groups.length) -
           (groupOrder.get(b.exercise.muscle_group) ?? params.groups.length) ||
+        priorityRank(a.exercise) - priorityRank(b.exercise) ||
         a.selectionOrder - b.selectionOrder,
     )
     .map(({ exercise }) => exercise);
@@ -1300,7 +1320,7 @@ export function buildWorkoutExercises(params: {
   const pool = params.exercises.filter((e) => (home ? e.place !== "gym" : true));
   const maxEx = params.durationMin <= 30 ? 4 : params.durationMin <= 45 ? 5 : 7;
 
-  return pickExercisesByGroup({
+  const picked = pickExercisesByGroup({
     pool,
     groups: params.groups,
     limit: maxEx,
@@ -1308,14 +1328,21 @@ export function buildWorkoutExercises(params: {
     place: params.place,
     equipment: params.equipment,
     experience: params.experience,
-  }).map<PlanWorkoutExercise>((e) => ({
-    exercise_name: e.name,
-    sets: 3,
-    reps: exercisePrescription(params.goal, e).reps,
-    rest_seconds: exercisePrescription(params.goal, e).rest,
-    difficulty: e.difficulty ?? "iniciante",
-    alternative_name: e.alternative_name ?? undefined,
-  }));
+  });
+
+  let mainCompoundDone = false;
+  return picked.map<PlanWorkoutExercise>((e) => {
+    const compoundMain = isCompoundPattern(e) && !mainCompoundDone;
+    if (compoundMain) mainCompoundDone = true;
+    return {
+      exercise_name: e.name,
+      sets: compoundMain ? 4 : 3,
+      reps: exercisePrescription(params.goal, e).reps,
+      rest_seconds: exercisePrescription(params.goal, e).rest,
+      difficulty: e.difficulty ?? "iniciante",
+      alternative_name: e.alternative_name ?? undefined,
+    };
+  });
 }
 
 type Blueprint = { name: string; groups: string[]; label: string };
@@ -1331,52 +1358,131 @@ const PRIORITY_TO_GROUPS: Record<string, string[]> = {
   ombros: ["ombros"],
 };
 
-const WORKOUT_EXERCISE_PRIORITIES: Record<string, string[]> = {
-  "Peito e tríceps": [
+// Curadoria por grupo muscular, do mais fundamental para o mais acessório
+// (composto pesado → composto/unilateral → isolador → panturrilha/core). O
+// gerador escolhe nessa ordem, então a ficha sai com "o básico que funciona"
+// primeiro em vez de exercícios sorteados. Só usa nomes que existem no catálogo.
+const GROUP_EXERCISE_PRIORITY: Record<string, string[]> = {
+  peito: [
     "Supino reto com barra",
     "Supino inclinado com halteres",
+    "Supino reto na máquina",
+    "Supino declinado com barra",
     "Crucifixo na máquina",
     "Crossover na polia",
-    "Tríceps corda na polia",
-    "Tríceps francês com halter",
-    "Tríceps testa",
+    "Crucifixo com halteres",
+    "Flexão de braço",
+    "Flexão inclinada",
   ],
-  "Costas e bíceps": [
-    "Remada curvada com barra",
-    "Remada baixa na polia",
+  costas: [
     "Puxada frontal",
+    "Remada curvada com barra",
+    "Barra fixa",
+    "Remada baixa na polia",
     "Puxada aberta na polia",
-    "Rosca Scott",
-    "Rosca martelo",
-    "Rosca direta com barra",
+    "Remada unilateral com halter",
+    "Puxada neutra na polia",
+    "Remada cavalinho",
+    "Pullover na polia",
+    "Remada com elástico",
   ],
-  "Pernas completas": [
-    "Agachamento hack",
-    "Agachamento livre",
-    "Cadeira extensora",
-    "Mesa flexora",
-    "Cadeira flexora",
-    "Leg press",
-    "Cadeira adutora",
-    "Panturrilha em pé",
-  ],
-  Ombros: [
-    "Crucifixo inverso na máquina",
+  ombros: [
     "Desenvolvimento com halteres",
-    "Elevação lateral",
-    "Elevação frontal com halteres",
-    "Face pull",
+    "Desenvolvimento militar com barra",
     "Desenvolvimento Arnold",
+    "Elevação lateral",
+    "Elevação lateral na polia",
+    "Elevação frontal com halteres",
+    "Crucifixo inverso na máquina",
+    "Face pull",
+    "Pike push-up",
+    "Elevação lateral com elástico",
   ],
-  "Bíceps e tríceps": [
-    "Tríceps corda na polia",
-    "Tríceps francês com halter",
-    "Tríceps testa",
+  biceps: [
     "Rosca direta com barra",
-    "Rosca martelo",
+    "Rosca alternada com halteres",
     "Rosca Scott",
+    "Rosca inclinada com halteres",
+    "Rosca martelo",
+    "Rosca na polia",
+    "Rosca com elástico",
   ],
+  triceps: [
+    "Tríceps na polia",
+    "Tríceps corda na polia",
+    "Tríceps testa",
+    "Tríceps francês com halter",
+    "Mergulho na máquina",
+    "Mergulho no banco",
+    "Tríceps unilateral na polia",
+    "Flexão diamante",
+  ],
+  pernas: [
+    "Agachamento livre",
+    "Agachamento hack",
+    "Agachamento no smith",
+    "Leg press",
+    "Afundo",
+    "Agachamento búlgaro",
+    "Passada com halteres",
+    "Avanço no smith",
+    "Cadeira extensora",
+    "Cadeira extensora unilateral",
+    "Agachamento no peso do corpo",
+  ],
+  // Alterna dobradiça de quadril e flexão de joelho pra não sair 3 stiffs seguidos.
+  posterior: [
+    "Levantamento terra romeno",
+    "Mesa flexora",
+    "Stiff com barra",
+    "Cadeira flexora",
+    "Stiff com halteres",
+    "Mesa flexora unilateral",
+    "Stiff no smith",
+    "Good morning",
+    "Flexão nórdica",
+    "Flexor de joelho com halter",
+  ],
+  gluteos: [
+    "Elevação pélvica",
+    "Agachamento sumô",
+    "Coice na máquina",
+    "Elevação pélvica unilateral",
+    "Glúteo no cabo em pé",
+    "Coice no cabo",
+    "Abdução na máquina",
+    "Elevação pélvica na máquina",
+    "Ponte de glúteo unilateral",
+    "Frog pump",
+  ],
+  panturrilha: [
+    "Panturrilha em pé",
+    "Panturrilha no leg press",
+    "Panturrilha sentado",
+    "Panturrilha no degrau",
+  ],
+  adutor: ["Cadeira adutora", "Agachamento sumô com halter", "Adutor com elástico"],
+  abdutor: ["Cadeira abdutora", "Abdução com elástico deitado", "Caminhada lateral com elástico"],
+  abdomen: [
+    "Prancha",
+    "Abdominal na máquina",
+    "Abdominal supra",
+    "Elevação de pernas",
+    "Prancha lateral",
+  ],
+  lombar: ["Hiperextensão lombar", "Superman no solo"],
 };
+
+function priorityRank(exercise: ExerciseRow): number {
+  const list = GROUP_EXERCISE_PRIORITY[exercise.muscle_group];
+  if (!list) return 999;
+  const index = list.indexOf(exercise.name);
+  return index === -1 ? 999 : index;
+}
+
+function isCompoundPattern(exercise: ExerciseRow): boolean {
+  return !["isolation", "core", "knee_flexion"].includes(movementPattern(exercise));
+}
 
 const HOME_BLUEPRINTS: Record<number, Blueprint[]> = {
   1: [
@@ -1924,11 +2030,11 @@ export function generateWorkoutPlan(params: {
           : 7;
   const baseMaxEx = fatLossGoal ? Math.max(4, baseMaxExRaw - 1) : baseMaxExRaw;
 
-  // Ênfase: expande as áreas de prioridade para muscle_group. Se o foco não é
-  // "balanced", garante que pelo menos metade dos dias da semana toquem a
-  // prioridade — não basta 1 dia já tocar o grupo "de passagem"; converte dias
-  // não relacionados (de trás para frente, pulando o dia de cárdio puro) até
-  // atingir essa cobertura, para a ênfase ser sentida de verdade no plano.
+  // Ênfase: garante que pelo menos METADE dos dias toque a área de prioridade.
+  // Se o split já cobre isso (comum no feminino, que já é perna-dominante), não
+  // mexe em nada. Quando precisa reforçar um dia, adiciona o grupo no FIM da
+  // ficha — 1-2 acessórios — em vez de transformar um dia de costas num dia de
+  // glúteo, o que deixava a ficha "embolada".
   const priorityGroups = [
     ...new Set((params.priorityAreas ?? []).flatMap((a) => PRIORITY_TO_GROUPS[a] ?? [])),
   ];
@@ -1938,7 +2044,7 @@ export function generateWorkoutPlan(params: {
     params.priorityLevel === "muscle"
   ) {
     const emphasisLabel = priorityGroups.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(" e ");
-    const wantedCoverage = Math.max(1, Math.ceil((blueprints.length * 2) / 3));
+    const wantedCoverage = Math.max(1, Math.ceil(blueprints.length / 2));
     let covered = blueprints.filter((bp) =>
       bp.groups.some((g) => priorityGroups.includes(g)),
     ).length;
@@ -1950,8 +2056,8 @@ export function generateWorkoutPlan(params: {
       blueprints[i] = {
         name: `${prefix} — ${bp.label} + ênfase`,
         groups: [
-          ...priorityGroups,
           ...bp.groups.filter((group) => !priorityGroups.includes(group)),
+          ...priorityGroups,
         ],
         label: `${bp.label} + ${emphasisLabel}`,
       };
@@ -1961,14 +2067,13 @@ export function generateWorkoutPlan(params: {
 
   const previousExerciseNames = new Set(params.previousExerciseNames ?? []);
   const usedExerciseNames = new Set<string>();
-  const byGroup = (groups: string[], limit: number, label: string) =>
+  const byGroup = (groups: string[], limit: number) =>
     pickExercisesByGroup({
       pool,
       groups,
       limit,
       avoidedNames: previousExerciseNames,
       usedNames: usedExerciseNames,
-      preferredNames: WORKOUT_EXERCISE_PRIORITIES[label],
       place: params.place,
       equipment: params.equipment,
       experience: params.experience,
@@ -1994,7 +2099,7 @@ export function generateWorkoutPlan(params: {
     const referenceLimit = explicitSplit === "isolated_5" && bp.label === "Ombros" ? 4 : baseMaxEx;
     const maxEx =
       hasPriority && explicitSplit !== "isolated_5" ? referenceLimit + 1 : referenceLimit;
-    const exs = byGroup(bp.groups, maxEx, bp.label);
+    const exs = byGroup(bp.groups, maxEx);
 
     // Finaliza todo treino de musculação com um cardio curto, como no treino de
     // referência do usuário — dias que já são de cárdio puro não repetem.
@@ -2029,5 +2134,27 @@ export function generateWorkoutPlan(params: {
     priorityLevel: params.priorityLevel,
   });
 
+  applySetHierarchy(workouts, pool);
+
   return { split, workouts };
+}
+
+/** Dá estrutura às séries: o primeiro composto de cada ficha (o exercício
+ *  principal) puxa 4 séries; o resto fica em 3–4. Sem isso todas as séries
+ *  saíam parecidas e a ficha parecia "sem hierarquia". */
+function applySetHierarchy(workouts: PlanWorkout[], pool: ExerciseRow[]): void {
+  const byName = new Map(pool.map((exercise) => [exercise.name, exercise]));
+  for (const workout of workouts) {
+    let mainCompoundDone = false;
+    for (const prescription of workout.exercises) {
+      const exercise = byName.get(prescription.exercise_name);
+      if (!exercise || exercise.muscle_group === "cardio") continue;
+      if (isCompoundPattern(exercise) && !mainCompoundDone) {
+        prescription.sets = 4;
+        mainCompoundDone = true;
+      } else {
+        prescription.sets = clampN(prescription.sets, 3, 4);
+      }
+    }
+  }
 }

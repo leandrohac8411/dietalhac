@@ -14,6 +14,7 @@ import {
   Target,
   Timer,
   Trash2,
+  TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -374,6 +375,15 @@ function Treino() {
         planId={data.plan.id}
         sessions={sessions.data ?? []}
       />
+
+      <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
+        <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+        <p>
+          <span className="font-medium text-foreground">Progressão de carga:</span> quando conseguir
+          fazer todas as séries de um exercício com folga, aumente o peso (ou as repetições) na
+          próxima vez. É assim que o treino continua evoluindo.
+        </p>
+      </div>
 
       <Disclaimer>
         Os treinos são sugestões gerais. Não realize exercícios que provoquem dor e procure
