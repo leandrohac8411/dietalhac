@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -99,8 +99,10 @@ type SessionSetRow = {
 type SessionForCompare = {
   id: string;
   workout_id: string | null;
+  workout_name: string | null;
   started_at: string;
   finished_at: string | null;
+  duration_min: number | null;
   workout_session_sets: SessionSetRow[];
 };
 
@@ -115,6 +117,38 @@ function previousSetsFor(sessions: SessionForCompare[], exerciseName: string): S
   return session.workout_session_sets
     .filter((set) => set.exercise_name === exerciseName)
     .sort((a, b) => a.set_number - b.set_number);
+}
+
+/** Sessão do modo ao vivo ainda aberta para uma ficha (finished_at nulo). */
+function openSessionFor(
+  sessions: SessionForCompare[],
+  workoutId: string | null | undefined,
+): SessionForCompare | null {
+  if (!workoutId) return null;
+  return sessions.find((s) => s.workout_id === workoutId && !s.finished_at) ?? null;
+}
+
+/** Sessão finalizada hoje (a mais recente), para mostrar o resumo do treino
+ *  no lugar do "iniciar treino" quando a pessoa já treinou. */
+function finishedSessionToday(
+  sessions: SessionForCompare[],
+  today: Date,
+): SessionForCompare | null {
+  return (
+    sessions.find((s) => s.finished_at != null && sameDay(new Date(s.finished_at), today)) ?? null
+  );
+}
+
+/** Quantas séries já foram registradas nesta sessão, por exercício. */
+function loggedSetsByExercise(session: SessionForCompare | null): Map<string, SessionSetRow[]> {
+  const map = new Map<string, SessionSetRow[]>();
+  for (const set of session?.workout_session_sets ?? []) {
+    const list = map.get(set.exercise_name) ?? [];
+    list.push(set);
+    map.set(set.exercise_name, list);
+  }
+  for (const list of map.values()) list.sort((a, b) => a.set_number - b.set_number);
+  return map;
 }
 
 /** Peso médio de gasto calórico em treino de força moderado (MET ~5). Aproximação
@@ -144,12 +178,16 @@ function useLiveWorkoutSession({
   const complete = useCompleteWorkout();
   const [localSession, setLocalSession] = useState<{ id: string; startedAt: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Segura a promessa em voo pra dois toques rápidos (ex.: "Iniciar treino" e
+  // logo "Concluir série") não criarem duas sessões separadas — era isso que
+  // fazia as séries irem pra uma sessão e a finalização fechar outra.
+  const creatingRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     setLocalSession(null);
   }, [workout?.id]);
 
-  const openSession = sessions.find((s) => s.workout_id === workout?.id && !s.finished_at);
+  const openSession = openSessionFor(sessions, workout?.id);
   const sessionId = openSession?.id ?? localSession?.id ?? null;
   const startedAt = openSession?.started_at ?? localSession?.startedAt ?? null;
   const isActive = !!sessionId;
@@ -162,15 +200,25 @@ function useLiveWorkoutSession({
 
   async function ensureSession(): Promise<string> {
     if (sessionId) return sessionId;
+    if (creatingRef.current) return creatingRef.current;
     if (!workout || !planId) throw new Error("Nenhum treino ativo hoje.");
-    const created = await startLiveSession.mutateAsync({
-      workoutId: workout.id,
-      workoutPlanId: planId,
-      workoutName: workout.name,
-      cyclePosition: workout.cycle_position ?? workout.sort_order,
-    });
-    setLocalSession({ id: created.id, startedAt: created.started_at });
-    return created.id;
+    const workoutId = workout.id;
+    const promise = startLiveSession
+      .mutateAsync({
+        workoutId,
+        workoutPlanId: planId,
+        workoutName: workout.name,
+        cyclePosition: workout.cycle_position ?? workout.sort_order,
+      })
+      .then((created) => {
+        setLocalSession({ id: created.id, startedAt: created.started_at });
+        return created.id;
+      })
+      .finally(() => {
+        creatingRef.current = null;
+      });
+    creatingRef.current = promise;
+    return promise;
   }
 
   function finish() {
@@ -424,6 +472,9 @@ function WorkoutCard({
   const startLiveSession = useStartLiveSession();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
+  const activeSession = openSessionFor(sessions, workout.id);
+  const loggedByExercise = loggedSetsByExercise(activeSession);
+
   /** Fichas fora do ciclo atual não têm o timer/hero compartilhado — criam sua
    *  própria sessão sob demanda, na primeira série concluída. A ficha atual usa
    *  a sessão iniciada em "Iniciar treino" no card de hoje. */
@@ -472,6 +523,7 @@ function WorkoutCard({
               ex={ex}
               catalog={catalogByName.get(ex.exercise_name)}
               previousSets={previousSetsFor(sessions, ex.exercise_name)}
+              loggedSets={loggedByExercise.get(ex.exercise_name) ?? []}
               getSessionId={getSessionId}
             />
           ))}
@@ -508,7 +560,7 @@ function DayFocus({
 }: {
   currentWorkout: WorkoutWithExercises | null;
   trainingWeekdays: number[] | null;
-  sessions: { started_at: string }[];
+  sessions: SessionForCompare[];
   liveSession: LiveSession;
 }) {
   const today = new Date();
@@ -520,9 +572,36 @@ function DayFocus({
     return d;
   });
 
-  const doneDates = sessions.map((s) => new Date(s.started_at));
+  const doneDates = sessions
+    .filter((s) => s.finished_at != null)
+    .map((s) => new Date(s.finished_at as string));
   const isTodayTraining = isTrainingDay(trainingWeekdays, today);
   const exerciseCount = currentWorkout?.workout_exercises?.length ?? 0;
+
+  const recapSession = finishedSessionToday(sessions, today);
+  const recap = recapSession
+    ? {
+        name: recapSession.workout_name ?? "Treino",
+        minutes:
+          recapSession.duration_min ??
+          Math.max(
+            1,
+            Math.round(
+              (new Date(recapSession.finished_at as string).getTime() -
+                new Date(recapSession.started_at).getTime()) /
+                60_000,
+            ),
+          ),
+        sets: recapSession.workout_session_sets.length,
+        exercises: new Set(recapSession.workout_session_sets.map((s) => s.exercise_name)).size,
+        volume: Math.round(
+          recapSession.workout_session_sets.reduce(
+            (total, s) => total + (s.load_kg ?? 0) * (s.reps_done ?? 0),
+            0,
+          ),
+        ),
+      }
+    : null;
 
   return (
     <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
@@ -580,7 +659,48 @@ function DayFocus({
         })}
       </div>
 
-      {isTodayTraining && currentWorkout ? (
+      {recap && !liveSession.isActive ? (
+        <div className="rounded-2xl border border-chart-1/30 bg-chart-1/10 p-5 sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-chart-1">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Treino de hoje concluído
+          </div>
+          <h3 className="mt-1.5 text-xl font-bold sm:text-2xl">{recap.name}</h3>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <Timer className="h-4 w-4" /> {recap.minutes} min
+            </span>
+            <span className="flex items-center gap-1.5">
+              <ListChecks className="h-4 w-4" /> {recap.exercises} exercícios
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Dumbbell className="h-4 w-4" /> {recap.sets} séries
+            </span>
+            {recap.volume > 0 ? (
+              <span>{recap.volume.toLocaleString("pt-BR")} kg de volume</span>
+            ) : null}
+          </div>
+          {currentWorkout ? (
+            <div className="mt-4 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Próximo: <span className="font-medium text-foreground">{currentWorkout.name}</span>
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={liveSession.starting}
+                onClick={() => {
+                  liveSession.start();
+                  document
+                    .getElementById(`workout-${currentWorkout.id}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                {liveSession.starting ? "Iniciando..." : "Fazer outro treino agora"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : isTodayTraining && currentWorkout ? (
         <div className="rounded-2xl bg-gradient-to-br from-accent to-accent/70 p-5 text-accent-foreground sm:p-6">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-90">
             <Flame className="h-3.5 w-3.5" /> Hoje
@@ -731,11 +851,13 @@ function ExerciseRow({
   ex,
   catalog,
   previousSets,
+  loggedSets,
   getSessionId,
 }: {
   ex: WorkoutExerciseRow;
   catalog: Exercise | undefined;
   previousSets: SessionSetRow[];
+  loggedSets: SessionSetRow[];
   getSessionId: () => Promise<string>;
 }) {
   const update = useUpdateWorkoutExercise();
@@ -750,8 +872,15 @@ function ExerciseRow({
       patch: { rest_seconds: Math.max(15, Number(ex.rest_seconds) + d) },
     });
 
+  const done = loggedSets.length >= Math.max(1, Number(ex.sets) || 1);
+
   return (
-    <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
+    <div
+      className={cn(
+        "rounded-xl border p-3 transition-colors",
+        done ? "border-border/40 bg-muted/40 opacity-70" : "border-border/60 bg-muted/15",
+      )}
+    >
       <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
         <div
           role="button"
@@ -767,6 +896,7 @@ function ExerciseRow({
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
+              {done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
               <p className="min-w-0 flex-1 truncate text-sm font-semibold">{ex.exercise_name}</p>
               {ex.difficulty ? (
                 <span
@@ -845,6 +975,7 @@ function ExerciseRow({
         ex={ex}
         catalog={catalog}
         previousSets={previousSets}
+        loggedSets={loggedSets}
         getSessionId={getSessionId}
       />
     </div>
@@ -1039,6 +1170,7 @@ function LiveWorkoutDialog({
   ex,
   catalog,
   previousSets,
+  loggedSets,
   getSessionId,
 }: {
   open: boolean;
@@ -1046,30 +1178,58 @@ function LiveWorkoutDialog({
   ex: WorkoutExerciseRow;
   catalog: Exercise | undefined;
   previousSets: SessionSetRow[];
+  loggedSets: SessionSetRow[];
   getSessionId: () => Promise<string>;
 }) {
   const update = useUpdateWorkoutExercise();
   const logSet = useLogSessionSet();
+
+  // Séries já registradas nesta sessão (ex.: reabriu o exercício depois) —
+  // retoma de onde parou em vez de começar do zero.
+  const initialDone = () =>
+    loggedSets.map((s) => ({
+      set: s.set_number,
+      kg: s.load_kg ?? 0,
+      reps: s.reps_done ?? 0,
+    }));
+  const lastLogged = loggedSets[loggedSets.length - 1];
+  const initialWeight = () =>
+    lastLogged?.load_kg ?? (Number(ex.load_kg) || previousSets[0]?.load_kg || 0);
+  const initialReps = () =>
+    lastLogged?.reps_done ?? (previousSets[0]?.reps_done || parseRepsBase(ex.reps));
+
   const [totalSets, setTotalSets] = useState(() => Math.max(1, Number(ex.sets) || 1));
-  const [setIndex, setSetIndex] = useState(0);
-  const [weight, setWeight] = useState(() => Number(ex.load_kg) || previousSets[0]?.load_kg || 0);
-  const [reps, setReps] = useState(() => previousSets[0]?.reps_done || parseRepsBase(ex.reps));
-  const [doneSets, setDoneSets] = useState<{ set: number; kg: number; reps: number }[]>([]);
+  const [setIndex, setSetIndex] = useState(() => loggedSets.length);
+  const [weight, setWeight] = useState(initialWeight);
+  const [reps, setReps] = useState(initialReps);
+  const [doneSets, setDoneSets] =
+    useState<{ set: number; kg: number; reps: number }[]>(initialDone);
   const [resting, setResting] = useState(false);
   const [restLeft, setRestLeft] = useState(ex.rest_seconds);
 
   useEffect(() => {
     if (!open) return;
-    setTotalSets(Math.max(1, Number(ex.sets) || 1));
-    setSetIndex(0);
-    setWeight(Number(ex.load_kg) || previousSets[0]?.load_kg || 0);
-    setReps(previousSets[0]?.reps_done || parseRepsBase(ex.reps));
-    setDoneSets([]);
+    setTotalSets(Math.max(loggedSets.length || 1, Number(ex.sets) || 1));
+    setSetIndex(loggedSets.length);
+    setWeight(initialWeight());
+    setReps(initialReps());
+    setDoneSets(initialDone());
     setResting(false);
     setRestLeft(ex.rest_seconds);
     // Só reinicia quando o dialog é reaberto, não a cada mudança de props.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Vibra quando o descanso zera — "hora de voltar".
+  useEffect(() => {
+    if (resting && restLeft <= 0) {
+      try {
+        navigator.vibrate?.([280, 120, 280]);
+      } catch {
+        /* alguns navegadores não suportam */
+      }
+    }
+  }, [resting, restLeft]);
 
   function changeTotalSets(next: number) {
     const clamped = Math.max(Math.max(1, setIndex), Math.min(20, next));
@@ -1095,7 +1255,8 @@ function LiveWorkoutDialog({
     const repsDone = reps;
     setDoneSets((sets) => [...sets, { set: num, kg, reps: repsDone }]);
     setSetIndex((i) => i + 1);
-    if (num < totalSets) {
+    setResting(false);
+    if (num < totalSets && ex.rest_seconds > 0) {
       setRestLeft(ex.rest_seconds);
       setResting(true);
     }
@@ -1231,18 +1392,33 @@ function LiveWorkoutDialog({
               </div>
 
               {resting ? (
-                <div className="flex items-center justify-between rounded-xl bg-accent/10 px-4 py-3">
-                  <div className="flex items-center gap-2 text-accent">
-                    <Timer className="h-4 w-4" />
-                    <span className="font-semibold tabular-nums">
-                      {minutes}:{String(seconds).padStart(2, "0")}
-                    </span>
-                    <span className="text-xs text-muted-foreground">descanso</span>
+                restLeft <= 0 ? (
+                  <div className="flex items-center justify-between rounded-xl border border-accent bg-accent/20 px-4 py-3">
+                    <div className="flex items-center gap-2 font-semibold text-accent">
+                      <Timer className="h-4 w-4" /> Hora de voltar!
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => setResting(false)}>
+                      Ok
+                    </Button>
                   </div>
-                  <Button size="sm" variant="secondary" onClick={() => setRestLeft((s) => s + 30)}>
-                    +30s
-                  </Button>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-between rounded-xl bg-accent/10 px-4 py-3">
+                    <div className="flex items-center gap-2 text-accent">
+                      <Timer className="h-4 w-4" />
+                      <span className="font-semibold tabular-nums">
+                        {minutes}:{String(seconds).padStart(2, "0")}
+                      </span>
+                      <span className="text-xs text-muted-foreground">descanso</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setRestLeft((s) => s + 30)}
+                    >
+                      +30s
+                    </Button>
+                  </div>
+                )
               ) : null}
             </>
           )}
