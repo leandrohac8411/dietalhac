@@ -12,6 +12,7 @@ import {
   LineChart as LineChartIcon,
   Lightbulb,
   Scale,
+  ShoppingCart,
   Target,
   UtensilsCrossed,
 } from "lucide-react";
@@ -135,12 +136,19 @@ function Dashboard() {
   const shortcuts = [
     { to: "/dieta", label: "Minha dieta", icon: Apple, accent: "green" as const },
     { to: "/treino", label: "Meu treino", icon: Dumbbell, accent: "blue" as const },
+    {
+      to: "/lista-compras",
+      label: "Lista de compras",
+      icon: ShoppingCart,
+      accent: "teal" as const,
+    },
     { to: "/checkin", label: "Check-in", icon: ClipboardCheck, accent: "amber" as const },
     { to: "/evolucao", label: "Evolução", icon: LineChartIcon, accent: "coral" as const },
   ];
   const chip: Record<string, string> = {
     green: "bg-chart-1/15 text-chart-1",
     blue: "bg-chart-3/15 text-chart-3",
+    teal: "bg-chart-2/15 text-chart-2",
     amber: "bg-chart-4/25 text-[oklch(0.48_0.12_75)]",
     coral: "bg-chart-5/15 text-chart-5",
   };

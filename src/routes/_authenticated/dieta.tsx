@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Replace,
   Search,
+  ShoppingCart,
   Target,
   Trash2,
   UtensilsCrossed,
@@ -210,7 +211,16 @@ function Dieta() {
       <PageHeader
         title="Minha dieta"
         subtitle={`${meals.length} refeições · ${formatKcal(totals.kcal)} no total`}
-        action={<RegenerateButton onConfirm={runGenerate} pending={generate.isPending} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/lista-compras">
+                <ShoppingCart className="mr-1.5 h-4 w-4" /> Lista de compras
+              </Link>
+            </Button>
+            <RegenerateButton onConfirm={runGenerate} pending={generate.isPending} />
+          </div>
+        }
       />
 
       <SectionCard
