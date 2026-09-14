@@ -40,7 +40,7 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 sm:flex sm:items-center sm:justify-between">
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         {eyebrow ? (
           <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
