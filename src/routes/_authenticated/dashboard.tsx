@@ -10,17 +10,20 @@ import {
   Flame,
   LayoutDashboard,
   LineChart as LineChartIcon,
+  Lightbulb,
   Scale,
   Target,
   UtensilsCrossed,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Disclaimer, PageHeader, Ring, SectionCard, StatCard } from "@/components/common";
 import {
   useActiveGoal,
   useActivities,
+  useCheckins,
   useLogWater,
   useMealPlan,
   usePreferences,
@@ -37,6 +40,7 @@ import {
   calcBmi,
   calcBmr,
   calcTdee,
+  computeCheckinInsight,
   formatKcal,
   formatNumber,
   parseHM,
@@ -64,6 +68,7 @@ function Dashboard() {
   const weights = useWeightLogs();
   const mealPlan = useMealPlan();
   const logWater = useLogWater();
+  const checkins = useCheckins();
 
   const p = profile.data;
   const g = goal.data;
@@ -124,6 +129,8 @@ function Dashboard() {
   const nextMealKcal = nextMeal
     ? Math.round(nextMeal.meal_items.reduce((a, it) => a + Number(it.calories), 0))
     : 0;
+
+  const checkinInsight = computeCheckinInsight(checkins.data ?? [], g?.goal_type);
 
   const shortcuts = [
     { to: "/dieta", label: "Minha dieta", icon: Apple, accent: "green" as const },
@@ -204,6 +211,32 @@ function Dashboard() {
           hint={g?.active_scenario ? `Cenário ${g.active_scenario}` : "Defina na estratégia"}
         />
       </div>
+
+      {checkinInsight ? (
+        <div
+          className={cn(
+            "flex items-start gap-3 rounded-xl border p-4 text-sm",
+            checkinInsight.tone === "warn"
+              ? "border-chart-4/40 bg-chart-4/10"
+              : "border-border/60 bg-muted/20",
+          )}
+        >
+          <Lightbulb
+            className={cn(
+              "mt-0.5 h-4 w-4 shrink-0",
+              checkinInsight.tone === "warn" ? "text-chart-4" : "text-accent",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-foreground">{checkinInsight.message}</p>
+          </div>
+          <Button asChild size="sm" variant="outline" className="shrink-0">
+            <Link to="/estrategia">
+              Ver estratégia <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard

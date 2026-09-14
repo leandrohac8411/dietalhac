@@ -402,3 +402,79 @@ export function mealGapWarnings(times: (string | null | undefined)[]): string[] 
   }
   return warnings;
 }
+
+/** Metas onde estagnação de peso é um sinal de alerta (nas outras, como
+ *  "manter", peso parado é o objetivo — não um problema). */
+const WEIGHT_CHANGE_GOALS = new Set([
+  "emagrecer",
+  "reduzir_gordura",
+  "ganhar_massa",
+  "ganhar_peso",
+  "recomposicao",
+]);
+
+export type CheckinLike = {
+  checkin_date: string;
+  weight_kg: number | null;
+  diet_adherence: number | null;
+  energy: number | null;
+  sleep: number | null;
+  stress: number | null;
+};
+
+export type CheckinInsight = { tone: "warn" | "info"; message: string };
+
+/** Lê os check-ins mais recentes (do mais novo pro mais antigo) e sugere algo
+ *  acionável quando um padrão se repete — peso parado, aderência caindo ou
+ *  bem-estar ruim seguido. Não tenta ser definitivo, só apontar o que vale a
+ *  pena a pessoa olhar; devolve no máximo um aviso por vez. */
+export function computeCheckinInsight(
+  checkinsNewestFirst: CheckinLike[],
+  goalType?: string | null,
+): CheckinInsight | null {
+  if (checkinsNewestFirst.length < 2) return null;
+
+  if (goalType && WEIGHT_CHANGE_GOALS.has(goalType)) {
+    const withWeight = checkinsNewestFirst
+      .filter((c) => c.weight_kg != null)
+      .slice(0, 3)
+      .map((c) => c.weight_kg as number);
+    if (withWeight.length === 3) {
+      const spread = Math.max(...withWeight) - Math.min(...withWeight);
+      if (spread < 0.4) {
+        return {
+          tone: "warn",
+          message: `Seu peso variou só ${spread.toFixed(1)} kg nos últimos ${withWeight.length} check-ins. Pode ser hora de revisar sua estratégia de calorias.`,
+        };
+      }
+    }
+  }
+
+  const withAdherence = checkinsNewestFirst
+    .filter((c) => c.diet_adherence != null)
+    .slice(0, 2)
+    .map((c) => c.diet_adherence as number);
+  if (withAdherence.length === 2 && withAdherence.every((a) => a < 60)) {
+    return {
+      tone: "warn",
+      message:
+        "Sua aderência à dieta ficou abaixo de 60% nos últimos check-ins. Vale revisar se o plano está praticável no seu dia a dia.",
+    };
+  }
+
+  const withWellbeing = checkinsNewestFirst
+    .filter((c) => c.energy != null || c.sleep != null || c.stress != null)
+    .slice(0, 2);
+  if (
+    withWellbeing.length === 2 &&
+    withWellbeing.every((c) => (c.energy ?? 5) <= 2 || (c.sleep ?? 5) <= 2 || (c.stress ?? 1) >= 4)
+  ) {
+    return {
+      tone: "info",
+      message:
+        "Energia, sono ou estresse vêm ruins nos últimos check-ins. Se o déficit calórico estiver muito agressivo, considere suavizar.",
+    };
+  }
+
+  return null;
+}
