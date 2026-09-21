@@ -315,6 +315,16 @@ export function useGenerateDiet() {
         .eq("user_id", uid)
         .maybeSingle();
 
+      const { data: activityRows } = await supabase
+        .from("user_activities")
+        .select("time_of_day,duration_min")
+        .eq("user_id", uid)
+        .not("time_of_day", "is", null);
+      const activityEvents = (activityRows ?? []).map((a) => ({
+        time: a.time_of_day,
+        durationMin: a.duration_min,
+      }));
+
       const { data: foods, error: fErr } = await supabase
         .from("food_items")
         .select("id,name,category,portion,unit,calories,protein_g,carbs_g,fat_g,fiber_g,tags")
@@ -343,6 +353,7 @@ export function useGenerateDiet() {
         supplements: prefs?.supplements ?? null,
         trainingTime: prefs?.training_time ?? null,
         trainingDurationMin: prefs?.training_duration_min ?? null,
+        activities: activityEvents,
       };
       // Uma única seleção aleatória pode ser culinariamente boa, mas inviável
       // dentro das porções reais. Gera alternativas e mantém a de menor desvio.

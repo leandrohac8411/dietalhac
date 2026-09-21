@@ -397,35 +397,58 @@ function minutesOf(value?: string | null): number | null {
   return hours * 60 + minutes;
 }
 
-function workoutRoles(
-  times: string[],
-  trainingTime?: string | null,
-  trainingDurationMin?: number | null,
-): MealRole[] {
+export type TrainingEvent = {
+  time?: string | null | undefined;
+  durationMin?: number | null | undefined;
+};
+
+/** Encontra, entre todos os eventos de treino/atividade do dia (treino
+ *  principal + jiu-jitsu, corrida etc.), a refeição mais próxima antes e
+ *  depois de QUALQUER um deles — cada atividade com seu próprio horário passa
+ *  a poder "reivindicar" uma refeição pré/pós, não só o treino da academia. */
+function workoutRoles(times: string[], events: TrainingEvent[]): MealRole[] {
   const roles: MealRole[] = times.map(() => "regular");
-  const start = minutesOf(trainingTime);
-  if (start === null) return roles;
-  const end = start + clampN(trainingDurationMin ?? 60, 15, 240);
+  const windows = events
+    .map((e) => minutesOf(e.time))
+    .map((start, i) =>
+      start === null ? null : { start, end: start + clampN(events[i]!.durationMin ?? 60, 15, 240) },
+    )
+    .filter((w): w is { start: number; end: number } => w !== null);
+  if (windows.length === 0) return roles;
+
   const mealMinutes = times.map(minutesOf);
-  let preIndex = -1;
-  let postIndex = -1;
-  let preDistance = Infinity;
-  let postDistance = Infinity;
-  mealMinutes.forEach((meal, index) => {
-    if (meal === null) return;
-    const before = start - meal;
-    if (before >= 0 && before <= 180 && before < preDistance) {
-      preDistance = before;
-      preIndex = index;
+  // Cada evento reivindica seu próprio par pré/pós — sem isso, o treino
+  // principal "vencia" sempre e as atividades extras nunca ganhavam refeição
+  // (todas competiam por um único par global). Uma vez usada, a refeição sai
+  // da disputa dos próximos eventos.
+  const claimed = new Set<number>();
+  for (const w of windows) {
+    let preIndex = -1;
+    let postIndex = -1;
+    let preDistance = Infinity;
+    let postDistance = Infinity;
+    mealMinutes.forEach((meal, index) => {
+      if (meal === null || claimed.has(index)) return;
+      const before = w.start - meal;
+      if (before >= 0 && before <= 180 && before < preDistance) {
+        preDistance = before;
+        preIndex = index;
+      }
+      const after = meal - w.end;
+      if (after >= 0 && after <= 180 && after < postDistance) {
+        postDistance = after;
+        postIndex = index;
+      }
+    });
+    if (preIndex >= 0) {
+      roles[preIndex] = "pre_workout";
+      claimed.add(preIndex);
     }
-    const after = meal - end;
-    if (after >= 0 && after <= 180 && after < postDistance) {
-      postDistance = after;
-      postIndex = index;
+    if (postIndex >= 0 && postIndex !== preIndex) {
+      roles[postIndex] = "post_workout";
+      claimed.add(postIndex);
     }
-  });
-  if (preIndex >= 0) roles[preIndex] = "pre_workout";
-  if (postIndex >= 0) roles[postIndex] = "post_workout";
+  }
   return roles;
 }
 
@@ -917,6 +940,9 @@ export function generateMealPlan(params: {
   supplements?: string | null;
   trainingTime?: string | null;
   trainingDurationMin?: number | null;
+  /** Outras atividades físicas (jiu-jitsu, corrida...) com horário definido —
+   *  cada uma também pode reivindicar uma refeição pré/pós, além do treino. */
+  activities?: TrainingEvent[] | null;
 }): PlanMeal[] {
   const restrictions = params.restrictions ?? [];
   const lowCarb = restrictions.includes("low_carb");
@@ -926,7 +952,11 @@ export function generateMealPlan(params: {
   const count = clampN(Math.round(params.mealsPerDay || 5), 3, 6);
   const names = MEALS_BY_COUNT[count] ?? MEALS_BY_COUNT[5]!;
   const times = names.map((name, i) => timeForMeal(name, params.mealTimes?.[i]));
-  const roles = workoutRoles(times, params.trainingTime, params.trainingDurationMin);
+  const trainingEvents: TrainingEvent[] = [
+    { time: params.trainingTime, durationMin: params.trainingDurationMin },
+    ...(params.activities ?? []),
+  ];
+  const roles = workoutRoles(times, trainingEvents);
   const displayNames = names.map((name, index) => {
     if (roles[index] === "pre_workout") return `${name} (pré-treino)`;
     if (roles[index] === "post_workout") return `${name} (pós-treino)`;

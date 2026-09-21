@@ -785,6 +785,7 @@ export type Database = {
           id: string;
           intensity: string;
           name: string;
+          time_of_day: string | null;
           user_id: string;
           weekdays: number[];
         };
@@ -794,6 +795,7 @@ export type Database = {
           id?: string;
           intensity?: string;
           name: string;
+          time_of_day?: string | null;
           user_id: string;
           weekdays?: number[];
         };
@@ -803,6 +805,7 @@ export type Database = {
           id?: string;
           intensity?: string;
           name?: string;
+          time_of_day?: string | null;
           user_id?: string;
           weekdays?: number[];
         };

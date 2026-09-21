@@ -174,6 +174,7 @@ type ActivityFormEntry = {
   activity: string;
   weekdays: number[];
   duration_min: string;
+  time_of_day: string;
 };
 
 type FormState = {
@@ -465,6 +466,7 @@ function Onboarding() {
               activity: a.name,
               weekdays: numberArray(a.weekdays),
               duration_min: str(a.duration_min),
+              time_of_day: a.time_of_day ?? "",
             }))
           : f.activities,
     }));
@@ -521,7 +523,10 @@ function Onboarding() {
   const addActivity = () =>
     setForm((f) => ({
       ...f,
-      activities: [...f.activities, { activity: "", weekdays: [], duration_min: "60" }],
+      activities: [
+        ...f.activities,
+        { activity: "", weekdays: [], duration_min: "60", time_of_day: "" },
+      ],
     }));
 
   const removeActivity = (index: number) =>
@@ -687,6 +692,7 @@ function Onboarding() {
             name: a.activity,
             weekdays: a.weekdays,
             duration_min: int(a.duration_min) ?? 60,
+            time_of_day: a.time_of_day || null,
           })),
         screening: {
           diabetes: form.diabetes,
@@ -1016,6 +1022,16 @@ function Onboarding() {
                         inputMode="numeric"
                         value={a.duration_min}
                         onChange={(e) => updateActivity(i, { duration_min: e.target.value })}
+                      />
+                    </Field>
+                    <Field
+                      label="Horário (opcional)"
+                      hint="Pra dieta montar uma refeição pré/pós perto dela"
+                    >
+                      <Input
+                        type="time"
+                        value={a.time_of_day}
+                        onChange={(e) => updateActivity(i, { time_of_day: e.target.value })}
                       />
                     </Field>
                   </div>
