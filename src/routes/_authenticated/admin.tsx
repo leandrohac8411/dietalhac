@@ -372,8 +372,8 @@ type FoodForm = {
 
 const FOOD_INITIAL: FoodForm = {
   name: "",
-  category: "proteina",
-  portion: "100",
+  category: "outros",
+  portion: "",
   unit: "g",
   calories: "",
   protein_g: "",
@@ -428,10 +428,18 @@ function FoodsPanel() {
   function submit() {
     if (!form.name.trim()) return;
     const num = (v: string) => Number(v.replace(",", ".")) || 0;
+    const portion = num(form.portion);
+    if (portion <= 0) {
+      toast.error("Informe a porção", {
+        description:
+          "Quantidade que os valores nutricionais abaixo representam — ex.: 30 para 1 scoop de whey, 100 para um alimento medido por 100g.",
+      });
+      return;
+    }
     const patch = {
       name: form.name,
       category: form.category,
-      portion: num(form.portion) || 100,
+      portion,
       unit: form.unit,
       calories: num(form.calories),
       protein_g: num(form.protein_g),
@@ -519,6 +527,7 @@ function FoodsPanel() {
                     <Label className="text-xs text-muted-foreground">Porção</Label>
                     <Input
                       type="number"
+                      placeholder="ex.: 30 (1 scoop), 100 (por 100g)"
                       value={form.portion}
                       onChange={(e) => setForm((f) => ({ ...f, portion: e.target.value }))}
                     />
