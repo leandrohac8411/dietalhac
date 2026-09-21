@@ -249,7 +249,7 @@ const NATURAL_COMBOS: Record<string, string[][]> = {
     ["Pão de forma integral", "Ovo inteiro", "Queijo minas frescal"],
     ["Tapioca (goma hidratada)", "Peito de frango desfiado", "Queijo cottage"],
     ["Iogurte grego natural", "Banana prata", "Aveia em flocos"],
-    ["Skyr natural", "Frutas vermelhas (mix congelado)", "Chia"],
+    ["Iogurte natural desnatado", "Granola sem açúcar", "Morango"],
   ],
   Jantar: [
     [
@@ -264,21 +264,81 @@ const NATURAL_COMBOS: Record<string, string[][]> = {
     ["Mandioca cozida", "Omelete simples", "Couve refogada"],
   ],
   Ceia: [
-    ["Iogurte natural desnatado", "Chia"],
-    ["Leite desnatado", "Aveia em flocos"],
+    ["Iogurte natural desnatado", "Banana prata", "Aveia em flocos"],
+    ["Leite desnatado", "Aveia em flocos", "Banana prata"],
     ["Queijo cottage", "Mamão"],
-    ["Skyr natural", "Morango"],
+    ["Iogurte grego natural", "Morango", "Chia"],
   ],
 };
 
 /** Composição de cada refeição por papel, com preferências de alimento. */
 type MealRole = "regular" | "pre_workout" | "post_workout";
 
+// Comida do dia a dia — o que a maioria das pessoas realmente come no Brasil.
+// Usado tanto como restrição forte (pré/pós-treino) quanto como preferência
+// leve nas refeições normais, pra Seitan/Tofu/Skyr/Fígado só aparecerem como
+// exceção (catálogo mais amplo pra quem gosta), nunca como sugestão padrão.
+const MAINSTREAM_PROTEIN = [
+  "Frango",
+  "Peru",
+  "Patinho",
+  "Alcatra",
+  "Coxão mole",
+  "Lombo",
+  "Filé mignon",
+  "Carne de panela",
+  "Whey",
+  "Presunto",
+  "Ovo",
+  "Atum",
+  "Tilápia",
+  "Salmão",
+  "Sardinha",
+  "Camarão",
+  "Merluza",
+  "Pescada",
+  "Queijo",
+  "Iogurte",
+];
+// Fica de fora do "prefer" (não é sugestão padrão), mas continua uma opção
+// válida quando as restrições da pessoa (vegetariano/vegano) já excluem toda
+// a lista acima — sem isso, quem só pode comer Tofu/Seitan/Proteína vegana
+// ficaria sem nenhum candidato nos slots restritos de pré/pós-treino e ceia.
+const PROTEIN_ONLY_FALLBACK = [
+  ...MAINSTREAM_PROTEIN,
+  "Tofu",
+  "Tempeh",
+  "Proteína vegana",
+  "Proteína texturizada",
+  "Seitan",
+  "Fígado",
+];
+const MAINSTREAM_CARB = [
+  "Arroz",
+  "Batata",
+  "Mandioca",
+  "Macarrão",
+  "Pão",
+  "Banana",
+  "Tapioca",
+  "Cuscuz",
+  "Aveia",
+  "Milho",
+];
+
 function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
   if (role === "pre_workout")
     return [
-      { cats: ["carboidrato", "fruta"], prefer: ["Banana", "Pão", "Tapioca", "Aveia"] },
-      { cats: ["laticinio", "proteina", "ovo"], prefer: ["Whey", "Iogurte", "Peito de peru"] },
+      {
+        cats: ["carboidrato", "fruta"],
+        prefer: ["Banana", "Pão", "Tapioca", "Aveia"],
+        only: [...MAINSTREAM_CARB, "Mamão", "Maçã", "Morango"],
+      },
+      {
+        cats: ["laticinio", "proteina", "ovo"],
+        prefer: ["Whey", "Iogurte", "Peito de peru", "Ovo"],
+        only: PROTEIN_ONLY_FALLBACK,
+      },
     ];
   if (role === "post_workout") {
     const isSnack = ["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(name);
@@ -286,63 +346,97 @@ function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
       return [
         {
           cats: ["laticinio", "proteina", "ovo"],
-          prefer: ["Whey", "Iogurte", "Skyr", "Ovo", "Cottage", "Frango desfiado"],
-          only: ["Whey", "Iogurte", "Skyr", "Ovo", "Cottage", "Frango desfiado"],
+          prefer: ["Whey", "Ovo", "Queijo", "Frango desfiado"],
+          only: ["Whey", "Iogurte", "Ovo", "Cottage", "Frango desfiado", "Queijo", "Tofu"],
         },
         {
           cats: ["carboidrato", "fruta"],
-          prefer: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Tapioca", "Cuscuz"],
+          prefer: ["Banana", "Pão", "Tapioca"],
           only: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Tapioca", "Cuscuz"],
         },
       ];
     return [
-      { cats: ["laticinio", "proteina", "peixe", "ovo"], prefer: ["Whey", "Iogurte", "Frango"] },
-      { cats: ["carboidrato", "fruta"], prefer: ["Arroz", "Batata", "Mandioca", "Banana"] },
+      {
+        cats: ["laticinio", "proteina", "peixe", "ovo"],
+        prefer: ["Whey", "Frango", "Ovo"],
+        only: PROTEIN_ONLY_FALLBACK,
+      },
+      {
+        cats: ["carboidrato", "fruta"],
+        prefer: ["Arroz", "Batata", "Mandioca", "Banana"],
+        only: MAINSTREAM_CARB,
+      },
     ];
   }
   switch (name) {
     case "Café da manhã":
       return lowCarb
-        ? [{ cats: ["ovo", "laticinio", "proteina"] }, { cats: ["fruta"] }, { cats: ["gordura"] }]
+        ? [
+            { cats: ["ovo", "laticinio", "proteina"], prefer: ["Ovo", "Iogurte", "Queijo"] },
+            { cats: ["fruta"] },
+            { cats: ["gordura"] },
+          ]
         : [
             { cats: ["carboidrato"], prefer: ["Aveia", "Pão", "Tapioca", "Cuscuz"] },
-            { cats: ["ovo", "laticinio", "proteina"] },
+            { cats: ["ovo", "laticinio", "proteina"], prefer: ["Ovo", "Iogurte", "Queijo"] },
             { cats: ["fruta"] },
           ];
     case "Almoço":
       return lowCarb
         ? [
-            { cats: ["proteina", "peixe"] },
+            { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["leguminosa"] },
             { cats: ["vegetal"] },
             { cats: ["gordura"] },
           ]
         : [
             { cats: ["carboidrato"], prefer: ["Arroz", "Batata", "Mandioca", "Macarrão"] },
-            { cats: ["proteina", "peixe"] },
+            { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["leguminosa"] },
             { cats: ["vegetal"] },
             { cats: ["gordura"] },
           ];
     case "Jantar":
       return lowCarb
-        ? [{ cats: ["proteina", "peixe"] }, { cats: ["vegetal"] }, { cats: ["gordura"] }]
+        ? [
+            { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
+            { cats: ["vegetal"] },
+            { cats: ["gordura"] },
+          ]
         : [
             { cats: ["carboidrato"], prefer: ["Batata", "Mandioca", "Arroz"] },
-            { cats: ["proteina", "peixe"] },
+            { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["vegetal"] },
             { cats: ["gordura"] },
           ];
     case "Lanche da manhã":
       return lowCarb
-        ? [{ cats: ["laticinio", "ovo"] }, { cats: ["gordura"] }]
-        : [{ cats: ["fruta"] }, { cats: ["laticinio", "gordura"] }];
+        ? [
+            { cats: ["laticinio", "ovo"], prefer: ["Iogurte", "Queijo", "Ovo"] },
+            { cats: ["gordura"] },
+          ]
+        : [{ cats: ["fruta"] }, { cats: ["laticinio", "gordura"], prefer: ["Iogurte", "Queijo"] }];
     case "Lanche da tarde":
       return lowCarb
-        ? [{ cats: ["laticinio", "ovo"] }, { cats: ["gordura"] }]
-        : [{ cats: ["proteina", "laticinio"] }, { cats: ["gordura"] }];
+        ? [
+            { cats: ["laticinio", "ovo"], prefer: ["Iogurte", "Queijo", "Ovo"] },
+            { cats: ["gordura"] },
+          ]
+        : [
+            {
+              cats: ["proteina", "laticinio"],
+              prefer: [...MAINSTREAM_PROTEIN, "Iogurte", "Queijo"],
+            },
+            { cats: ["gordura"] },
+          ];
     case "Ceia":
-      return [{ cats: ["laticinio", "proteina"], prefer: ["Iogurte", "Queijo", "Whey"] }];
+      return [
+        {
+          cats: ["laticinio", "proteina"],
+          prefer: ["Iogurte", "Queijo", "Whey"],
+          only: [...PROTEIN_ONLY_FALLBACK, "Leite"],
+        },
+      ];
     default:
       return [{ cats: ["proteina", "peixe"] }, { cats: ["carboidrato"] }, { cats: ["vegetal"] }];
   }

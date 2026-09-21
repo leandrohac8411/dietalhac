@@ -113,6 +113,34 @@ const RESTRICTIONS: Opt[] = [
   { v: "sem_gluten", l: "Sem glúten" },
   { v: "sem_carne_vermelha", l: "Sem carne vermelha" },
 ];
+const SUPPLEMENT_OPTIONS: Opt[] = [
+  { v: "Whey protein", l: "Whey protein" },
+  { v: "Creatina", l: "Creatina" },
+  { v: "BCAA", l: "BCAA" },
+  { v: "Cafeína / termogênico", l: "Cafeína / termogênico" },
+  { v: "Multivitamínico", l: "Multivitamínico" },
+  { v: "Ômega 3", l: "Ômega 3" },
+  { v: "Glutamina", l: "Glutamina" },
+  { v: "Colágeno", l: "Colágeno" },
+];
+
+/** Separa um texto livre de suplementos (formato antigo, salvo antes do
+ *  checklist existir) no que bate com as opções conhecidas e no resto. */
+function splitSupplementsText(raw: string): { known: string[]; other: string } {
+  const tokens = raw
+    .split(/[,;\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const known: string[] = [];
+  const other: string[] = [];
+  for (const token of tokens) {
+    const match = SUPPLEMENT_OPTIONS.find((o) => o.l.toLowerCase() === token.toLowerCase());
+    if (match && !known.includes(match.v)) known.push(match.v);
+    else other.push(token);
+  }
+  return { known, other: other.join(", ") };
+}
+
 const BUDGET: Opt[] = [
   { v: "baixo", l: "Econômico" },
   { v: "medio", l: "Médio" },
@@ -211,7 +239,8 @@ type FormState = {
   alcohol_intake: string;
   food_budget: string;
   cooking_time: string;
-  supplements: string;
+  supplements: string[];
+  supplements_other: string;
   medications: string;
   injuries: string;
 } & Record<HealthKey, boolean>;
@@ -250,7 +279,8 @@ const INITIAL: FormState = {
   alcohol_intake: "nao",
   food_budget: "medio",
   cooking_time: "medio",
-  supplements: "",
+  supplements: [],
+  supplements_other: "",
   medications: "",
   injuries: "",
   diabetes: false,
@@ -446,7 +476,8 @@ function Onboarding() {
       alcohol_intake: pr?.alcohol_intake ?? f.alcohol_intake,
       food_budget: pr?.food_budget ?? f.food_budget,
       cooking_time: pr?.cooking_time ?? f.cooking_time,
-      supplements: str(pr?.supplements),
+      supplements: splitSupplementsText(str(pr?.supplements)).known,
+      supplements_other: splitSupplementsText(str(pr?.supplements)).other,
       medications: str(sc?.medications),
       injuries: str(sc?.injuries),
       diabetes: sc?.diabetes ?? false,
@@ -514,7 +545,10 @@ function Onboarding() {
       return { ...f, training_weekdays: next, training_days: String(next.length) };
     });
 
-  const toggleArr = (key: "priority_areas" | "equipment" | "dietary_restrictions", v: string) =>
+  const toggleArr = (
+    key: "priority_areas" | "equipment" | "dietary_restrictions" | "supplements",
+    v: string,
+  ) =>
     setForm((f) => {
       const cur = f[key];
       return { ...f, [key]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
@@ -684,7 +718,8 @@ function Onboarding() {
           alcohol_intake: form.alcohol_intake,
           food_budget: form.food_budget,
           cooking_time: form.cooking_time,
-          supplements: form.supplements || null,
+          supplements:
+            [...form.supplements, form.supplements_other].filter(Boolean).join(", ") || null,
         },
         activities: form.activities
           .filter((a) => a.activity && a.weekdays.length > 0)
@@ -1151,22 +1186,31 @@ function Onboarding() {
                   onChange={(v) => set("alcohol_intake", v)}
                 />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Água por dia (ml)" hint="Opcional">
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={form.water_intake_ml}
-                    onChange={(e) => set("water_intake_ml", e.target.value)}
-                  />
-                </Field>
-                <Field label="Suplementos em uso" hint="Opcional">
-                  <Input
-                    value={form.supplements}
-                    onChange={(e) => set("supplements", e.target.value)}
-                  />
-                </Field>
-              </div>
+              <Field label="Água por dia (ml)" hint="Opcional">
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={form.water_intake_ml}
+                  onChange={(e) => set("water_intake_ml", e.target.value)}
+                  className="max-w-40"
+                />
+              </Field>
+              <Field
+                label="Suplementos em uso"
+                hint="Ajuda a dieta a considerar o que você já toma"
+              >
+                <PillMulti
+                  options={SUPPLEMENT_OPTIONS}
+                  values={form.supplements}
+                  onToggle={(v) => toggleArr("supplements", v)}
+                />
+                <Input
+                  className="mt-2"
+                  placeholder="Outro suplemento (opcional)"
+                  value={form.supplements_other}
+                  onChange={(e) => set("supplements_other", e.target.value)}
+                />
+              </Field>
             </div>
           </SectionCard>
         </div>
