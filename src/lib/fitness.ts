@@ -79,6 +79,14 @@ export function calcTdee(bmr: number, factor: number): number {
   return bmr * factor;
 }
 
+/** Gasto calórico aproximado de um treino de força moderado (MET ~5). Só uma
+ *  referência — não é preciso, mas dá pra ajustar a meta do dia com ele. */
+const WORKOUT_MET = 5;
+
+export function estimateWorkoutKcal(minutes: number, weightKg: number): number {
+  return Math.round(((WORKOUT_MET * 3.5 * weightKg) / 200) * minutes);
+}
+
 export function waistHipRatio(waist?: number | null, hip?: number | null): number | null {
   if (!waist || !hip) return null;
   return waist / hip;

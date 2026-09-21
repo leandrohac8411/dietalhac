@@ -60,10 +60,12 @@ import {
   useLogFreeFood,
   useMealPlan,
   usePreferences,
+  useProfile,
   useReplaceMealItems,
   useDeleteSavedMeal,
   useSavedMeals,
   useSaveMeal,
+  useSessions,
   useSubstitutions,
   useSwapMealItem,
   useToggleMealCompletion,
@@ -73,7 +75,7 @@ import {
 import type { FoodItem, FoodLogRow, MealItemRow, SavedMeal } from "@/lib/db";
 import { eligibleDietFoods, generateMealAlternatives, mealPlanMacros } from "@/lib/plan-generator";
 import type { FoodRow, MealAlternative, PlanFoodItem } from "@/lib/plan-generator";
-import { formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
+import { estimateWorkoutKcal, formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 import { searchOffProducts } from "@/lib/openfoodfacts";
 import type { OffProduct } from "@/lib/openfoodfacts";
 import { PhotoMealCapture } from "@/components/diet/photo-meal-capture";
@@ -104,13 +106,24 @@ function macroTotals(items: MealItemRow[]) {
   );
 }
 
+/** Mesmo dia local (ignora hora). */
+function sameLocalDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 function Dieta() {
   const [actualMealId, setActualMealId] = useState<string | null>(null);
   const goal = useActiveGoal();
   const mealPlan = useMealPlan();
   const foods = useFoods();
   const preferences = usePreferences();
+  const profile = useProfile();
   const subs = useSubstitutions();
+  const sessions = useSessions();
   const generate = useGenerateDiet();
   const foodLogs = useFoodLogsToday();
 
@@ -188,6 +201,19 @@ function Dieta() {
   const logByMealId = new Map(
     logsToday.filter((log) => log.meal_id).map((log) => [log.meal_id as string, log]),
   );
+  // A meta da estratégia é uma MÉDIA semanal fixa — não sobe no dia que você
+  // treina nem desce no dia de descanso. Somamos aqui o gasto estimado do(s)
+  // treino(s) finalizados hoje pra a meta do dia refletir o gasto real.
+  const today = new Date();
+  const todayWorkoutMinutes = (sessions.data ?? [])
+    .filter((s) => s.finished_at && sameLocalDay(new Date(s.finished_at), today))
+    .reduce((sum, s) => sum + (s.duration_min ?? 0), 0);
+  const todayWorkoutKcal =
+    todayWorkoutMinutes > 0
+      ? estimateWorkoutKcal(todayWorkoutMinutes, Number(profile.data?.current_weight_kg) || 70)
+      : 0;
+  const adjustedTargetCalories = Number(g.target_calories) + todayWorkoutKcal;
+
   const actualMeal = meals.find((meal) => meal.id === actualMealId) ?? null;
   const eligibleFoods = eligibleDietFoods({
     foods: (foods.data ?? []) as FoodRow[],
@@ -225,7 +251,11 @@ function Dieta() {
 
       <SectionCard
         title="Resumo do dia"
-        description={`${formatKcal(consumed.kcal)} consumidas · ${formatKcal(Math.max(0, Number(g.target_calories) - consumed.kcal))} restantes.`}
+        description={
+          todayWorkoutKcal > 0
+            ? `${formatKcal(consumed.kcal)} consumidas · ${formatKcal(Math.max(0, adjustedTargetCalories - consumed.kcal))} restantes · meta de hoje ${formatKcal(adjustedTargetCalories)} (${formatKcal(Number(g.target_calories))} + ${formatKcal(todayWorkoutKcal)} do treino).`
+            : `${formatKcal(consumed.kcal)} consumidas · ${formatKcal(Math.max(0, adjustedTargetCalories - consumed.kcal))} restantes.`
+        }
         icon={<Target className="h-4 w-4" />}
         accent="green"
       >
@@ -233,7 +263,7 @@ function Dieta() {
           <AdherenceBar
             label="Calorias"
             value={consumed.kcal}
-            target={g.target_calories}
+            target={adjustedTargetCalories}
             unit="kcal"
             bar="[&>div]:bg-accent"
           />

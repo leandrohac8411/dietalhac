@@ -66,6 +66,7 @@ import {
   useWorkoutPlan,
 } from "@/lib/db";
 import type { Exercise, WorkoutExerciseRow } from "@/lib/db";
+import { estimateWorkoutKcal } from "@/lib/fitness";
 import { MUSCLE_GROUP_LABELS, SPLIT_LABELS } from "@/lib/plan-generator";
 import { currentCycleWorkout, isTrainingDay, uniqueCycleWorkouts } from "@/lib/workout-cycle";
 
@@ -150,15 +151,6 @@ function loggedSetsByExercise(session: SessionForCompare | null): Map<string, Se
   }
   for (const list of map.values()) list.sort((a, b) => a.set_number - b.set_number);
   return map;
-}
-
-/** Peso médio de gasto calórico em treino de força moderado (MET ~5). Aproximação
- *  só para dar um número de referência durante o treino, não é preciso. */
-const WORKOUT_MET = 5;
-
-function estimateKcal(elapsedSeconds: number, weightKg: number) {
-  const minutes = elapsedSeconds / 60;
-  return Math.round(((WORKOUT_MET * 3.5 * weightKg) / 200) * minutes);
 }
 
 /** Controla a sessão "ao vivo" do treino atual: cria a sessão quando o usuário
@@ -248,7 +240,7 @@ function useLiveWorkoutSession({
   return {
     isActive,
     elapsedSeconds,
-    estimatedKcal: estimateKcal(elapsedSeconds, weightKg),
+    estimatedKcal: estimateWorkoutKcal(elapsedSeconds / 60, weightKg),
     ensureSession,
     start: () => void ensureSession().catch(() => undefined),
     finish,
