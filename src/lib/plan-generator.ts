@@ -731,6 +731,38 @@ function repairProteinSelection(
   }
 }
 
+/** Os slots de pré/pós-treino nunca incluem gordura (só carbo + proteína magra),
+ *  e várias combinações naturais de Almoço/Jantar também não têm nenhuma fonte
+ *  de gordura — a dieta acaba estruturalmente abaixo da meta de gordura sempre
+ *  que a pessoa treina (não é sorte, é praticamente garantido). Complementa com
+ *  azeite nas refeições principais que ainda não têm nenhum item da categoria. */
+function repairFatDeficit(
+  names: string[],
+  items: BuildItem[],
+  foods: FoodRow[],
+  targets: DietTargets,
+): void {
+  const totalFat = items.reduce(
+    (sum, item) => sum + (item.food.fat_g * item.grams) / item.food.portion,
+    0,
+  );
+  if (totalFat >= targets.fat * 0.85) return;
+  const fatFood = foods.find(
+    (food) => food.category === "gordura" && deburr(food.name.toLowerCase()).includes("azeite"),
+  );
+  if (!fatFood) return;
+  const [, hi] = portionBounds(fatFood);
+  names.forEach((name, mealIndex) => {
+    const baseName = name.replace(/ \((?:pré|pós)-treino\)$/i, "");
+    if (baseName !== "Almoço" && baseName !== "Jantar") return;
+    const hasFat = items.some(
+      (item) => item.mealIndex === mealIndex && item.food.category === "gordura",
+    );
+    if (hasFat) return;
+    items.push({ food: fatFood, grams: hi, mealIndex, preparation: prep(fatFood.category) });
+  });
+}
+
 function repairMealCompatibility(names: string[], items: BuildItem[], foods: FoodRow[]): void {
   const used = new Set(items.map((item) => item.food.id));
   for (const item of items) {
@@ -1017,6 +1049,12 @@ export function buildMealPlanFromChoices(params: {
     items,
     params.foods,
   );
+  repairFatDeficit(
+    params.choices.map((meal) => meal.name),
+    items,
+    params.foods,
+    params.targets,
+  );
   return balanceAndFormat(
     params.choices.map((meal) => meal.name),
     params.choices.map((meal) => meal.scheduled_time),
@@ -1104,6 +1142,7 @@ export function generateMealPlan(params: {
 
   repairProteinSelection(names, items, pool, params.targets);
   repairMealCompatibility(names, items, pool);
+  repairFatDeficit(names, items, pool, params.targets);
   return balanceAndFormat(displayNames, times, items, params.targets);
 }
 
