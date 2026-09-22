@@ -361,6 +361,14 @@ export function useAddWorkoutExercise() {
   return useMutation({
     mutationFn: async ({ workoutId, exercise }: { workoutId: string; exercise: Exercise }) => {
       const uid = await requireUserId();
+      const { data: existing } = await supabase
+        .from("workout_exercises")
+        .select("sort_order")
+        .eq("workout_id", workoutId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextSortOrder = (existing?.sort_order ?? -1) + 1;
       const { error } = await supabase.from("workout_exercises").insert({
         user_id: uid,
         workout_id: workoutId,
@@ -371,6 +379,7 @@ export function useAddWorkoutExercise() {
         rest_seconds: 60,
         difficulty: exercise.difficulty,
         alternative_name: exercise.alternative_name,
+        sort_order: nextSortOrder,
       });
       if (error) throw error;
     },
