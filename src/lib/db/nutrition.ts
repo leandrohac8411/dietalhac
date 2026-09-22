@@ -357,7 +357,11 @@ export function useGenerateDiet() {
       };
       // Uma única seleção aleatória pode ser culinariamente boa, mas inviável
       // dentro das porções reais. Gera alternativas e mantém a de menor desvio.
-      const candidates = Array.from({ length: 30 }, () => generateMealPlan(generationInput));
+      // Para alguns perfis (metas mais justas de kcal/macros) só uma fração
+      // pequena das combinações cai dentro da tolerância — com poucas tentativas
+      // isso gerava falha de geração por azar, não por impossibilidade real.
+      // 200 tentativas custam <1s (é só CPU local) e praticamente eliminam isso.
+      const candidates = Array.from({ length: 200 }, () => generateMealPlan(generationInput));
       const viableCandidates = candidates.filter((candidate) =>
         mealPlanWithinTolerance(candidate, targets),
       );

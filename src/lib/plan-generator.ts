@@ -460,11 +460,15 @@ function makePicker(
   const liked = preferenceTokens(likedFoods);
   const supplementNames = preferenceTokens(supplements);
   return (slot: Slot): FoodRow | undefined => {
-    const candidates = pool.filter(
-      (food) =>
-        slot.cats.includes(food.category) &&
-        (!slot.only || slot.only.some((name) => food.name.includes(name))),
-    );
+    const byCategory = pool.filter((food) => slot.cats.includes(food.category));
+    const onlyFiltered = slot.only
+      ? byCategory.filter((food) => slot.only!.some((name) => food.name.includes(name)))
+      : byCategory;
+    // Se a restrição "only" (ex.: só carboidratos mainstream no pré-treino) zerar
+    // as opções — por causa de alergia/restrição/aversão da pessoa — cai pra
+    // categoria inteira em vez de deixar a refeição sem nenhum candidato, o que
+    // travava a geração inteira mesmo com alimentos elegíveis disponíveis.
+    const candidates = onlyFiltered.length > 0 ? onlyFiltered : byCategory;
     if (candidates.length === 0) return undefined;
     const rank = (f: FoodRow) => {
       const preferred = slot.prefer && slot.prefer.some((p) => f.name.includes(p)) ? 0 : 1;
