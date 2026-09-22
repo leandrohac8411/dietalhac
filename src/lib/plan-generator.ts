@@ -2028,7 +2028,15 @@ function pickBlueprint(
   if (home) return HOME_BLUEPRINTS[Math.min(d, 3)] ?? HOME_BLUEPRINTS[3]!;
   const table = sex === "feminino" ? FEMALE_BLUEPRINTS : MALE_BLUEPRINTS;
 
-  if (splitPreference === "isolated_5") return isolatedBlueprints(priorityAreas);
+  // "isolated_5" (ABCDE) é um bro-split clássico — faz sentido para o padrão
+  // masculino, mas para mulheres o padrão real é inferior/superior alternado
+  // (glúteo-dominante), então usamos a tabela feminina de 5 dias em vez do
+  // split genérico de peito/costas/pernas/ombro/braço isolados.
+  if (splitPreference === "isolated_5") {
+    return sex === "feminino"
+      ? (FEMALE_BLUEPRINTS[5] ?? isolatedBlueprints(priorityAreas))
+      : isolatedBlueprints(priorityAreas);
+  }
 
   // Com um estilo explícito (AB/ABC/ABCD), o split escolhido cicla (A,B,C,A,B,C...)
   // independente de quantos dias por semana a pessoa treina, em vez de ganhar um
