@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   CalendarCheck,
   CheckCircle2,
+  Copy,
   Dumbbell,
   Flame,
   ListChecks,
@@ -52,6 +53,7 @@ import {
   useActiveGoal,
   useAddWorkoutExercise,
   useCompleteWorkout,
+  useCopyWorkoutExercises,
   useDeleteWorkoutExercise,
   useExercises,
   useGenerateWorkout,
@@ -411,6 +413,7 @@ function WorkoutList({
         <div id={`workout-${currentWorkout.id}`} className="scroll-mt-20">
           <WorkoutCard
             workout={currentWorkout}
+            allWorkouts={workouts}
             exercises={exercises}
             catalogByName={catalogByName}
             isCurrent
@@ -437,6 +440,7 @@ function WorkoutList({
                 <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-20">
                   <WorkoutCard
                     workout={w}
+                    allWorkouts={workouts}
                     exercises={exercises}
                     catalogByName={catalogByName}
                     isCurrent={false}
@@ -455,6 +459,7 @@ function WorkoutList({
 
 function WorkoutCard({
   workout,
+  allWorkouts,
   exercises,
   catalogByName,
   isCurrent,
@@ -463,6 +468,7 @@ function WorkoutCard({
   liveSession,
 }: {
   workout: WorkoutWithExercises;
+  allWorkouts: WorkoutWithExercises[];
   exercises: Exercise[];
   catalogByName: Map<string, Exercise>;
   isCurrent: boolean;
@@ -501,6 +507,10 @@ function WorkoutCard({
       accent="blue"
       action={
         <div className="flex items-center gap-2">
+          <CopyWorkoutPopover
+            workoutId={workout.id}
+            otherWorkouts={allWorkouts.filter((w) => w.id !== workout.id)}
+          />
           <GroupPickerPopover workoutId={workout.id} durationMin={workout.estimated_min ?? 60} />
           <AddExercisePopover workoutId={workout.id} exercises={exercises} />
         </div>
@@ -1497,6 +1507,87 @@ function AddExercisePopover({
             </CommandGroup>
           </CommandList>
         </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CopyWorkoutPopover({
+  workoutId,
+  otherWorkouts,
+}: {
+  workoutId: string;
+  otherWorkouts: WorkoutWithExercises[];
+}) {
+  const copy = useCopyWorkoutExercises();
+  const [open, setOpen] = useState(false);
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const source = otherWorkouts.find((w) => w.id === sourceId) ?? null;
+
+  function confirm() {
+    if (!sourceId) return;
+    copy.mutate(
+      { targetWorkoutId: workoutId, sourceWorkoutId: sourceId },
+      {
+        onSuccess: () => {
+          toast.success("Treino copiado!", { description: source?.name });
+          setOpen(false);
+          setSourceId(null);
+        },
+        onError: (e) =>
+          toast.error("Não foi possível copiar", {
+            description: e instanceof Error ? e.message : "Tente novamente.",
+          }),
+      },
+    );
+  }
+
+  if (otherWorkouts.length === 0) return null;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setSourceId(null);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3">
+          <Copy className="h-4 w-4 sm:mr-1" />
+          <span className="sr-only sm:not-sr-only">Copiar</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">
+          Repetir os exercícios de outro dia aqui (substitui os exercícios deste treino)
+        </p>
+        <div className="flex flex-col gap-1">
+          {otherWorkouts.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => setSourceId(w.id)}
+              className={cn(
+                "rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-colors",
+                sourceId === w.id
+                  ? "border-accent bg-accent text-accent-foreground"
+                  : "border-border/60 text-muted-foreground hover:border-accent/50",
+              )}
+            >
+              {w.name}
+            </button>
+          ))}
+        </div>
+        <Button
+          size="sm"
+          className="mt-3 w-full"
+          disabled={!sourceId || copy.isPending}
+          onClick={confirm}
+        >
+          <Copy className="mr-1.5 h-4 w-4" />
+          {copy.isPending ? "Copiando..." : "Copiar para este dia"}
+        </Button>
       </PopoverContent>
     </Popover>
   );

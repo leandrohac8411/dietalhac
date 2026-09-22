@@ -387,6 +387,53 @@ export function useAddWorkoutExercise() {
   });
 }
 
+/** Substitui os exercícios de um treino pelos mesmos exercícios (séries/reps/descanso
+ *  incluídos) de outro treino do mesmo plano — útil pra repetir um dia de ficha em outro. */
+export function useCopyWorkoutExercises() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      targetWorkoutId,
+      sourceWorkoutId,
+    }: {
+      targetWorkoutId: string;
+      sourceWorkoutId: string;
+    }) => {
+      const uid = await requireUserId();
+      const { data: source, error: sErr } = await supabase
+        .from("workout_exercises")
+        .select("exercise_id,exercise_name,sets,reps,rest_seconds,difficulty,alternative_name")
+        .eq("workout_id", sourceWorkoutId)
+        .order("sort_order");
+      if (sErr) throw sErr;
+      if (!source || source.length === 0) throw new Error("O treino de origem não tem exercícios.");
+
+      const { error: delErr } = await supabase
+        .from("workout_exercises")
+        .delete()
+        .eq("workout_id", targetWorkoutId);
+      if (delErr) throw delErr;
+
+      const { error: insErr } = await supabase.from("workout_exercises").insert(
+        source.map((ex, j) => ({
+          user_id: uid,
+          workout_id: targetWorkoutId,
+          exercise_id: ex.exercise_id,
+          exercise_name: ex.exercise_name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest_seconds: ex.rest_seconds,
+          difficulty: ex.difficulty,
+          alternative_name: ex.alternative_name,
+          sort_order: j,
+        })),
+      );
+      if (insErr) throw insErr;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["workoutPlan"] }),
+  });
+}
+
 /** Troca os exercícios de um único dia por um conjunto escolhido de grupos musculares
  *  (ex.: "só tríceps", ou "costas e ombro"), mantendo o resto do treino intacto. */
 export function useRegenerateWorkoutDay() {
