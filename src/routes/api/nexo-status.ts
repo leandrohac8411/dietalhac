@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { trainedDatesForEmail } from "@/lib/nexo-status.server";
+import { nexoStatusForEmail } from "@/lib/nexo-status.server";
 
 // Somente-leitura para o Casal Fit marcar o treino do dia sozinho.
 // Não expõe dieta, peso nem nada além das datas de treinos concluídos.
@@ -35,8 +35,8 @@ export const Route = createFileRoute("/api/nexo-status")({
           );
 
         try {
-          const trainedDates = await trainedDatesForEmail(email);
-          return Response.json({ trainedDates }, { headers: corsHeaders });
+          const status = await nexoStatusForEmail(email);
+          return Response.json(status, { headers: corsHeaders });
         } catch (error) {
           console.error("[nexo-status]", error);
           return Response.json(
