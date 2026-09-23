@@ -890,7 +890,7 @@ function ExerciseRow({
     <div
       className={cn(
         "rounded-xl border p-3 transition-colors",
-        done ? "border-border/40 bg-muted/40 opacity-70" : "border-border/60 bg-muted/15",
+        done ? "border-accent/40 bg-accent/10" : "border-border/60 bg-muted/15",
       )}
     >
       <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
@@ -908,8 +908,15 @@ function ExerciseRow({
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              {done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{ex.exercise_name}</p>
+              {done ? <CheckCircle2 className="h-5 w-5 shrink-0 text-accent" /> : null}
+              <p
+                className={cn(
+                  "min-w-0 flex-1 truncate text-sm font-semibold",
+                  done && "text-accent",
+                )}
+              >
+                {ex.exercise_name}
+              </p>
               {ex.difficulty ? (
                 <span
                   className={cn(
