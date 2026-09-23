@@ -94,12 +94,15 @@ export function useCompleteWorkout() {
       name: string;
       estimated_min: number | null;
       sessionId?: string | null;
+      durationMin?: number | null;
+      estimatedKcal?: number | null;
     }) => {
       await requireUserId();
       const { data, error } = await supabase.rpc("complete_workout_cycle", {
         p_workout_id: workout.id,
-        p_duration_min: workout.estimated_min ?? 60,
+        p_duration_min: workout.durationMin ?? workout.estimated_min ?? 60,
         p_session_id: workout.sessionId ?? null,
+        p_estimated_kcal: workout.estimatedKcal ?? null,
       });
       if (error) throw error;
       return data;

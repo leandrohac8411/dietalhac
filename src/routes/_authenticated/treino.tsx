@@ -107,6 +107,7 @@ type SessionForCompare = {
   started_at: string;
   finished_at: string | null;
   duration_min: number | null;
+  estimated_kcal: number | null;
   workout_session_sets: SessionSetRow[];
 };
 
@@ -237,8 +238,14 @@ function useLiveWorkoutSession({
 
   function finish() {
     if (!workout) return;
+    // Usa o tempo real do modo ao vivo em vez da duração estimada da ficha —
+    // sem isso toda sessão ficava salva com a mesma duração "padrão" do plano
+    // (ex.: sempre 60 min), não o tempo que a pessoa realmente levou.
+    const realMinutes = elapsedSeconds > 0 ? Math.max(1, Math.round(elapsedSeconds / 60)) : null;
+    const kcal =
+      elapsedSeconds > 0 ? Math.round(estimateWorkoutKcal(elapsedSeconds / 60, weightKg)) : null;
     complete.mutate(
-      { ...workout, sessionId },
+      { ...workout, sessionId, durationMin: realMinutes, estimatedKcal: kcal },
       {
         onSuccess: () => {
           setLocalSession(null);
@@ -660,6 +667,7 @@ function DayFocus({
             0,
           ),
         ),
+        kcal: recapSession.estimated_kcal,
       }
     : null;
 
@@ -737,6 +745,11 @@ function DayFocus({
             </span>
             {recap.volume > 0 ? (
               <span>{recap.volume.toLocaleString("pt-BR")} kg de volume</span>
+            ) : null}
+            {recap.kcal ? (
+              <span className="flex items-center gap-1.5">
+                <Flame className="h-4 w-4" /> ~{recap.kcal} kcal
+              </span>
             ) : null}
           </div>
           {currentWorkout ? (
