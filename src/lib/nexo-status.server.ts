@@ -31,7 +31,7 @@ export async function nexoStatusForEmail(email: string): Promise<NexoStatus> {
   const [sessionsResult, waterResult, goalResult] = await Promise.all([
     supabaseAdmin
       .from("workout_sessions")
-      .select("id, workout_name, finished_at, duration_min, total_volume")
+      .select("id, workout_name, finished_at, duration_min")
       .eq("user_id", user.id)
       .not("finished_at", "is", null)
       .gte("finished_at", since.toISOString()),
@@ -56,19 +56,32 @@ export async function nexoStatusForEmail(email: string): Promise<NexoStatus> {
   const setsResult = sessionIds.length
     ? await supabaseAdmin
         .from("workout_session_sets")
-        .select("session_id, exercise_name")
+        .select("session_id, exercise_name, load_kg, reps_done")
         .in("session_id", sessionIds)
-    : { data: [] as { session_id: string; exercise_name: string }[], error: null };
+    : {
+        data: [] as {
+          session_id: string;
+          exercise_name: string;
+          load_kg: number | null;
+          reps_done: number | null;
+        }[],
+        error: null,
+      };
   if (setsResult.error) throw setsResult.error;
 
-  const statsBySession = new Map<string, { exercises: Set<string>; setCount: number }>();
+  const statsBySession = new Map<
+    string,
+    { exercises: Set<string>; setCount: number; volume: number }
+  >();
   for (const row of setsResult.data) {
     const stat = statsBySession.get(row.session_id) ?? {
       exercises: new Set<string>(),
       setCount: 0,
+      volume: 0,
     };
     stat.exercises.add(row.exercise_name);
     stat.setCount += 1;
+    stat.volume += (row.load_kg ?? 0) * (row.reps_done ?? 0);
     statsBySession.set(row.session_id, stat);
   }
 
@@ -87,7 +100,7 @@ export async function nexoStatusForEmail(email: string): Promise<NexoStatus> {
         date: (s.finished_at as string).slice(0, 10),
         workoutName: s.workout_name,
         durationMin: s.duration_min,
-        totalVolume: s.total_volume,
+        totalVolume: stat ? stat.volume : 0,
         exerciseCount: stat ? stat.exercises.size : 0,
         setCount: stat ? stat.setCount : 0,
       };
