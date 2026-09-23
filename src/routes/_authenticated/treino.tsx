@@ -132,6 +132,25 @@ function openSessionFor(
   return sessions.find((s) => s.workout_id === workoutId && !s.finished_at) ?? null;
 }
 
+/** Sessão relevante pra marcar exercícios como concluídos no card: a que
+ *  ainda está aberta, ou, se a ficha já foi finalizada hoje, essa mesma
+ *  sessão de hoje — sem isso, reabrir uma ficha já concluída mostrava todos
+ *  os exercícios como "não feitos" de novo. */
+function relevantSessionFor(
+  sessions: SessionForCompare[],
+  workoutId: string | null | undefined,
+  today: Date,
+): SessionForCompare | null {
+  if (!workoutId) return null;
+  const open = openSessionFor(sessions, workoutId);
+  if (open) return open;
+  return (
+    sessions.find(
+      (s) => s.workout_id === workoutId && s.finished_at && sameDay(new Date(s.finished_at), today),
+    ) ?? null
+  );
+}
+
 /** Sessão finalizada hoje (a mais recente), para mostrar o resumo do treino
  *  no lugar do "iniciar treino" quando a pessoa já treinou. */
 function finishedSessionToday(
@@ -279,6 +298,24 @@ function Treino() {
     weightKg: profile.data?.current_weight_kg ?? 70,
   });
 
+  // "Fazer outro treino agora" pode apontar pra uma ficha escondida atrás de
+  // "Ver outros treinos" — expande a lista e só então rola até o card, quando
+  // ele já existir no DOM.
+  const [showOthers, setShowOthers] = useState(false);
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const el = document.getElementById(`workout-${scrollTarget}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setScrollTarget(null);
+    }
+  }, [scrollTarget, showOthers]);
+  function pickWorkout(workoutId: string) {
+    setShowOthers(true);
+    setScrollTarget(workoutId);
+  }
+
   if (profile.isLoading || workoutPlan.isLoading) return <LoadingBlock rows={5} />;
 
   if (!profile.data?.onboarding_completed || !goal.data) {
@@ -349,9 +386,11 @@ function Treino() {
 
       <DayFocus
         currentWorkout={currentWorkout}
+        allWorkouts={workouts}
         trainingWeekdays={prefs.data?.training_weekdays ?? null}
         sessions={sessions.data ?? []}
         liveSession={liveSession}
+        onPickWorkout={pickWorkout}
       />
 
       <CycleStatus
@@ -368,6 +407,8 @@ function Treino() {
         catalogByName={catalogByName}
         planId={data.plan.id}
         sessions={sessions.data ?? []}
+        showOthers={showOthers}
+        onShowOthersChange={setShowOthers}
       />
 
       <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
@@ -395,6 +436,8 @@ function WorkoutList({
   planId,
   sessions,
   liveSession,
+  showOthers,
+  onShowOthersChange,
 }: {
   workouts: WorkoutWithExercises[];
   currentWorkout: WorkoutWithExercises | null;
@@ -403,8 +446,9 @@ function WorkoutList({
   planId: string;
   sessions: SessionForCompare[];
   liveSession: LiveSession;
+  showOthers: boolean;
+  onShowOthersChange: (show: boolean) => void;
 }) {
-  const [showOthers, setShowOthers] = useState(false);
   const others = workouts.filter((w) => w.id !== currentWorkout?.id);
 
   return (
@@ -429,7 +473,7 @@ function WorkoutList({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowOthers((s) => !s)}
+            onClick={() => onShowOthersChange(!showOthers)}
             className="w-full sm:w-auto"
           >
             {showOthers ? "Ocultar outros treinos" : `Ver outros treinos (${others.length})`}
@@ -480,7 +524,7 @@ function WorkoutCard({
   const startLiveSession = useStartLiveSession();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  const activeSession = openSessionFor(sessions, workout.id);
+  const activeSession = relevantSessionFor(sessions, workout.id, new Date());
   const loggedByExercise = loggedSetsByExercise(activeSession);
 
   /** Fichas fora do ciclo atual não têm o timer/hero compartilhado — criam sua
@@ -566,14 +610,18 @@ function formatElapsed(totalSeconds: number) {
 
 function DayFocus({
   currentWorkout,
+  allWorkouts,
   trainingWeekdays,
   sessions,
   liveSession,
+  onPickWorkout,
 }: {
   currentWorkout: WorkoutWithExercises | null;
+  allWorkouts: WorkoutWithExercises[];
   trainingWeekdays: number[] | null;
   sessions: SessionForCompare[];
   liveSession: LiveSession;
+  onPickWorkout: (workoutId: string) => void;
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -696,19 +744,7 @@ function DayFocus({
               <p className="text-sm text-muted-foreground">
                 Próximo: <span className="font-medium text-foreground">{currentWorkout.name}</span>
               </p>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={liveSession.starting}
-                onClick={() => {
-                  liveSession.start();
-                  document
-                    .getElementById(`workout-${currentWorkout.id}`)
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-              >
-                {liveSession.starting ? "Iniciando..." : "Fazer outro treino agora"}
-              </Button>
+              <PickWorkoutPopover workouts={allWorkouts} onPick={onPickWorkout} />
             </div>
           ) : null}
         </div>
@@ -795,6 +831,48 @@ function DayFocus({
         </div>
       )}
     </div>
+  );
+}
+
+/** Deixa escolher qual ficha fazer agora, em vez de sempre cair na próxima do
+ *  ciclo — útil quando a pessoa quer repetir ou adiantar um dia específico. */
+function PickWorkoutPopover({
+  workouts,
+  onPick,
+}: {
+  workouts: WorkoutWithExercises[];
+  onPick: (workoutId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  function choose(workoutId: string) {
+    setOpen(false);
+    onPick(workoutId);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline">
+          Fazer outro treino agora
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-2">
+        <p className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Qual treino?</p>
+        <div className="flex flex-col gap-1">
+          {workouts.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => choose(w.id)}
+              className="rounded-lg border border-border/60 px-2.5 py-1.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground"
+            >
+              {w.name}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
