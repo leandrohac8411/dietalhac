@@ -1305,6 +1305,7 @@ export type Database = {
           created_at: string;
           cycle_position: number | null;
           duration_min: number | null;
+          estimated_kcal: number | null;
           finished_at: string | null;
           had_pain: boolean | null;
           id: string;
@@ -1321,6 +1322,7 @@ export type Database = {
           created_at?: string;
           cycle_position?: number | null;
           duration_min?: number | null;
+          estimated_kcal?: number | null;
           finished_at?: string | null;
           had_pain?: boolean | null;
           id?: string;
@@ -1337,6 +1339,7 @@ export type Database = {
           created_at?: string;
           cycle_position?: number | null;
           duration_min?: number | null;
+          estimated_kcal?: number | null;
           finished_at?: string | null;
           had_pain?: boolean | null;
           id?: string;
@@ -1418,7 +1421,9 @@ export type Database = {
       };
       complete_workout_cycle: {
         Args: {
-          p_duration_min?: number;
+          p_duration_min?: number | null;
+          p_estimated_kcal?: number | null;
+          p_session_id?: string | null;
           p_workout_id: string;
         };
         Returns: Json;
