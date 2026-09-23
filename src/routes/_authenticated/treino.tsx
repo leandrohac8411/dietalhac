@@ -78,7 +78,7 @@ export const Route = createFileRoute("/_authenticated/treino")({
 
 const DIFF_STYLE: Record<string, string> = {
   iniciante: "bg-chart-1/15 text-chart-1",
-  intermediario: "bg-chart-4/25 text-[oklch(0.48_0.12_75)]",
+  intermediario: "bg-chart-4/20 text-chart-4",
   avancado: "bg-chart-5/15 text-chart-5",
 };
 
@@ -1180,6 +1180,12 @@ function parseRepsBase(reps: string): number {
   return match ? Number(match[0]) : 10;
 }
 
+/** Evita sobra de ponto flutuante (ex.: 16 - 0.5 - 0.5 = 14.999999999999998)
+ *  nos incrementos de peso de 0,5 em 0,5. */
+function roundHalf(n: number): number {
+  return Math.round(n * 2) / 2;
+}
+
 /** Modo de execução: acompanha as séries do exercício em tempo real (peso, reps,
  *  descanso) e grava cada série concluída no histórico do usuário assim que ela
  *  é confirmada. */
@@ -1367,24 +1373,31 @@ function LiveWorkoutDialog({
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setWeight((w) => Math.max(0, w - 2.5))}
+                      onClick={() => setWeight((w) => Math.max(0, roundHalf(w - 0.5)))}
                       aria-label="Diminuir peso"
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
-                    <span className="w-16 text-center text-4xl font-bold tabular-nums">
-                      {weight}
-                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      value={weight}
+                      onChange={(e) => setWeight(Math.max(0, Number(e.target.value) || 0))}
+                      onFocus={(e) => e.target.select()}
+                      className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
+                      aria-label="Peso em kg"
+                    />
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setWeight((w) => w + 2.5)}
+                      onClick={() => setWeight((w) => roundHalf(w + 0.5))}
                       aria-label="Aumentar peso"
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">kg</p>
+                  <p className="mt-1 text-xs text-muted-foreground">kg · toque para digitar</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-2.5">
@@ -1396,7 +1409,18 @@ function LiveWorkoutDialog({
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
-                    <span className="w-10 text-center text-4xl font-bold tabular-nums">{reps}</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      value={reps}
+                      onChange={(e) =>
+                        setReps(Math.max(1, Math.round(Number(e.target.value)) || 1))
+                      }
+                      onFocus={(e) => e.target.select()}
+                      className="w-10 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
+                      aria-label="Repetições"
+                    />
                     <Button
                       variant="outline"
                       size="icon"
@@ -1406,7 +1430,7 @@ function LiveWorkoutDialog({
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">reps</p>
+                  <p className="mt-1 text-xs text-muted-foreground">reps · toque para digitar</p>
                 </div>
               </div>
 
