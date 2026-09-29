@@ -461,7 +461,7 @@ function WorkoutList({
   return (
     <div className="space-y-4">
       {currentWorkout ? (
-        <div id={`workout-${currentWorkout.id}`} className="scroll-mt-20">
+        <div id={`workout-${currentWorkout.id}`} className="scroll-mt-28">
           <WorkoutCard
             workout={currentWorkout}
             allWorkouts={workouts}
@@ -488,7 +488,7 @@ function WorkoutList({
           {showOthers ? (
             <div className="mt-4 grid gap-4 xl:grid-cols-2">
               {others.map((w) => (
-                <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-20">
+                <div key={w.id} id={`workout-${w.id}`} className="scroll-mt-28">
                   <WorkoutCard
                     workout={w}
                     allWorkouts={workouts}

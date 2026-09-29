@@ -91,6 +91,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // Evita que Chrome/Samsung Internet ofereçam ou apliquem tradução
+      // automática na página — abreviações como "Reps" e "60s" (segundos)
+      // já foram mal-traduzidas para "Representantes" e "anos 60" (a década).
+      { name: "google", content: "notranslate" },
       { title: "NEXO — plano de dieta e treino personalizado" },
       {
         name: "description",
@@ -145,7 +149,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="pt-BR" className="dark">
       <head>
         <HeadContent />
       </head>
