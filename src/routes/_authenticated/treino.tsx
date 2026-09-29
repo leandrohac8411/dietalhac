@@ -1094,8 +1094,8 @@ function ExerciseRow({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
       {children}
     </div>
   );
@@ -1115,9 +1115,9 @@ function Stepper({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-0.5">
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
+      <div className="flex shrink-0 items-center gap-0.5">
         <Button
           variant="outline"
           size="icon"
