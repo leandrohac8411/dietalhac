@@ -411,6 +411,12 @@ function Onboarding() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormState>(INITIAL);
   const seeded = useRef(false);
+  // Se a pessoa já começou a preencher o formulário antes de profile/prefs/
+  // goal/screening/activities terminarem de carregar, o efeito de
+  // pré-preenchimento abaixo não deve mais rodar — ele sobrescrevia em
+  // silêncio qualquer escolha já feita assim que a consulta mais lenta
+  // finalmente respondia.
+  const userEdited = useRef(false);
 
   // Pré-preenche com dados já existentes (edição do questionário).
   useEffect(() => {
@@ -424,6 +430,7 @@ function Onboarding() {
     )
       return;
     seeded.current = true;
+    if (userEdited.current) return;
 
     const p = profile.data;
     const g = goal.data;
@@ -522,17 +529,22 @@ function Onboarding() {
 
   if (profile.isLoading) return <LoadingBlock rows={4} />;
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    userEdited.current = true;
     setForm((f) => ({ ...f, [key]: value }));
+  };
 
-  const setTrainingDays = (value: string) =>
+  const setTrainingDays = (value: string) => {
+    userEdited.current = true;
     setForm((f) => ({
       ...f,
       training_days: value,
       training_weekdays: defaultTrainingWeekdays(Number(value)),
     }));
+  };
 
-  const toggleTrainingWeekday = (day: number) =>
+  const toggleTrainingWeekday = (day: number) => {
+    userEdited.current = true;
     setForm((f) => {
       const selected = f.training_weekdays.includes(day);
       if (selected) {
@@ -544,17 +556,21 @@ function Onboarding() {
       const next = [...f.training_weekdays, day].sort();
       return { ...f, training_weekdays: next, training_days: String(next.length) };
     });
+  };
 
   const toggleArr = (
     key: "priority_areas" | "equipment" | "dietary_restrictions" | "supplements",
     v: string,
-  ) =>
+  ) => {
+    userEdited.current = true;
     setForm((f) => {
       const cur = f[key];
       return { ...f, [key]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
     });
+  };
 
-  const addActivity = () =>
+  const addActivity = () => {
+    userEdited.current = true;
     setForm((f) => ({
       ...f,
       activities: [
@@ -562,17 +578,23 @@ function Onboarding() {
         { activity: "", weekdays: [], duration_min: "60", time_of_day: "" },
       ],
     }));
+  };
 
-  const removeActivity = (index: number) =>
+  const removeActivity = (index: number) => {
+    userEdited.current = true;
     setForm((f) => ({ ...f, activities: f.activities.filter((_, i) => i !== index) }));
+  };
 
-  const updateActivity = (index: number, patch: Partial<ActivityFormEntry>) =>
+  const updateActivity = (index: number, patch: Partial<ActivityFormEntry>) => {
+    userEdited.current = true;
     setForm((f) => ({
       ...f,
       activities: f.activities.map((a, i) => (i === index ? { ...a, ...patch } : a)),
     }));
+  };
 
-  const toggleActivityWeekday = (index: number, day: number) =>
+  const toggleActivityWeekday = (index: number, day: number) => {
+    userEdited.current = true;
     setForm((f) => ({
       ...f,
       activities: f.activities.map((a, i) =>
@@ -586,9 +608,11 @@ function Onboarding() {
           : a,
       ),
     }));
+  };
 
   // Recalcula os horários pela rotina (sobrescreve edições manuais).
-  const recalcTimes = () =>
+  const recalcTimes = () => {
+    userEdited.current = true;
     setForm((f) => ({
       ...f,
       meal_times: deriveMealTimes({
@@ -599,13 +623,16 @@ function Onboarding() {
         trainingDurationMin: Number(f.training_duration_min) || null,
       }),
     }));
+  };
 
-  const setMealTime = (i: number, value: string) =>
+  const setMealTime = (i: number, value: string) => {
+    userEdited.current = true;
     setForm((f) => {
       const next = [...f.meal_times];
       next[i] = value;
       return { ...f, meal_times: next };
     });
+  };
 
   const riskFlags =
     form.diabetes ||
