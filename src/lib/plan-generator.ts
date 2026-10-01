@@ -1257,17 +1257,26 @@ export const SPLIT_LABELS: Record<string, string> = {
   ab: "Treino AB",
   abc: "Treino ABC",
   abcd: "Treino ABCD",
+  abcde: "Treino ABCDE",
+  abcdef: "Treino ABCDEF",
+  abcdefg: "Treino ABCDEFG",
   isolated_5: "5 dias por grupos",
   upper_lower: "Superior e Inferior",
   home: "Treino em casa",
   feminino: "Foco em pernas e glúteos",
 };
 
+// Letras do rótulo precisam bater com o número de fichas que o blueprint do
+// dia realmente gera (MALE_BLUEPRINTS/FEMALE_BLUEPRINTS têm uma entrada por
+// contagem de dias) — "Treino ABCD" pra um plano de 5+ fichas confundia,
+// já que a tela mostra as letras A, B, C, D, E (ou mais) lado a lado.
 export function chooseSplit(days: number, experience?: string | null): string {
   if (days <= 2) return "full_body";
   if (days === 3) return experience === "avancado" ? "abc" : "full_body";
   if (days === 4) return "upper_lower";
-  return "abcd";
+  if (days === 5) return "abcde";
+  if (days === 6) return "abcdef";
+  return "abcdefg";
 }
 
 export type ExerciseRow = {
