@@ -29,6 +29,10 @@ type DraftComponent = {
 type IdentifiedItem = {
   name: string;
   grams: number;
+  /** Unidade real da porção (do catálogo, quando casou um item — ex.: "ml"
+   *  pra bebidas). "grams" segue sendo a quantidade numérica mesmo quando a
+   *  unidade é "ml"; só o rótulo exibido muda. */
+  unit: string;
   calories: number;
   protein_g: number;
   carbs_g: number;
@@ -187,6 +191,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
             return {
               name: catalog.name,
               grams,
+              unit: catalog.unit || "g",
               calories: Math.round(perGram.calories * grams),
               protein_g: Math.round(perGram.protein_g * grams * 10) / 10,
               carbs_g: Math.round(perGram.carbs_g * grams * 10) / 10,
@@ -204,6 +209,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
           return {
             name: item.name,
             grams,
+            unit: "g",
             calories: Math.round(item.calories),
             protein_g: Math.round(item.protein_g * 10) / 10,
             carbs_g: Math.round(item.carbs_g * 10) / 10,
@@ -249,7 +255,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
       identified.map((item) => ({
         name: item.name,
         quantity: item.grams,
-        unit: "g",
+        unit: item.unit === "ml" ? "ml" : "g",
         calories: item.calories,
         protein_g: item.protein_g,
         carbs_g: item.carbs_g,
@@ -331,7 +337,7 @@ export function PhotoMealCapture({ mealName, foods, onItemsConfirmed }: PhotoMea
                       onChange={(e) => updateGrams(i, Number(e.target.value) || 1)}
                       className="h-9 w-20 text-center"
                     />
-                    <span className="text-xs text-muted-foreground">g</span>
+                    <span className="text-xs text-muted-foreground">{item.unit}</span>
                     <Button
                       type="button"
                       size="icon"
