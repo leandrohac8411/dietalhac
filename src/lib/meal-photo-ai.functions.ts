@@ -73,7 +73,7 @@ export const analyzeMealPhoto = createServerFn({ method: "POST" })
               {
                 role: "system",
                 content:
-                  "Você identifica os alimentos visíveis em uma foto de prato de comida brasileira e estima a porção e os macros de cada um (calorias, proteína, carboidrato e gordura em gramas), pelo que vê na foto. Estime a gramagem realista de cada porção pelo tamanho no prato. Ignore o prato, talheres e coisas que não são comida. Se a foto não mostrar comida com clareza, retorne items vazio.",
+                  "Você identifica os alimentos e bebidas visíveis em uma foto de uma refeição brasileira e estima a porção e os macros de cada um (calorias, proteína, carboidrato e gordura em gramas), pelo que vê na foto. Estime a gramagem/volume realista de cada porção pelo tamanho na imagem. Bebidas contam como item: refrigerante, suco, energético ou cerveja em lata, garrafa ou copo também devem ser identificados e estimados (ex.: uma lata de refrigerante ou energético tem ~350 ml) — não são 'coisas que não são comida'. Ignore apenas o prato vazio, talheres, guardanapo e embalagem/utensílio em si (sem conteúdo). Se a foto não mostrar nada que se coma ou beba com clareza, retorne items vazio.",
               },
               {
                 role: "user",
