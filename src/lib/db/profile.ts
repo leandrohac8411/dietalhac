@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import { databaseError } from "@/lib/errors";
+import { activityFactor, buildScenarios, calcAge, calcBmr, calcTdee } from "@/lib/fitness";
+import { weeklyExtraKcalPerDay } from "@/lib/activities";
 import { requireUserId } from "./shared";
 import type {
   OnboardingPayload,
@@ -115,9 +117,70 @@ export function useCompleteOnboarding() {
         .eq("is_active", true);
       if (deErr) throw databaseError("Objetivo anterior", deErr);
 
-      const { error: gErr } = await supabase
-        .from("user_goals")
-        .insert({ ...payload.goal, user_id: uid, is_active: true });
+      // Calcula de cara a meta calórica/macros do cenário "equilibrado" (mesma
+      // conta da tela de Estratégia) e já salva no objetivo criado. Sem isso, o
+      // onboarding criava um objetivo com active_scenario: "equilibrado" mas
+      // target_calories nulo — a tela de Estratégia mostrava "Equilibrado" como
+      // "Estratégia atual" (sugerindo que já estava definida), mas "Gerar minha
+      // dieta" falhava com "Defina sua estratégia primeiro" logo em seguida.
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("height_cm,birth_date,biological_sex")
+        .eq("id", uid)
+        .maybeSingle();
+      const weightKg = Number(payload.profile.current_weight_kg) || 0;
+      const heightCm = Number(profileRow?.height_cm) || 0;
+      const age = calcAge(profileRow?.birth_date) ?? 0;
+      const bmr =
+        weightKg && heightCm
+          ? calcBmr({ weightKg, heightCm, age, sex: profileRow?.biological_sex })
+          : 0;
+      const factor = activityFactor({
+        routine: payload.preferences.routine_level ?? null,
+        trainingDays: payload.preferences.training_days ?? null,
+        dailySteps: payload.preferences.daily_steps ?? null,
+      });
+      const baseMaintenance = Math.round(calcTdee(bmr, factor));
+      const extraKcal = weeklyExtraKcalPerDay(
+        payload.activities.map((a) => ({
+          activity: a.name,
+          weekdays: a.weekdays ?? [],
+          duration_min: a.duration_min ?? 60,
+        })),
+        weightKg,
+      );
+      const maintenance = baseMaintenance + extraKcal;
+      const riskFlags = Boolean(
+        payload.screening.diabetes ||
+        payload.screening.hypertension ||
+        payload.screening.heart_condition ||
+        payload.screening.kidney_disease ||
+        payload.screening.liver_disease ||
+        payload.screening.eating_disorder ||
+        payload.screening.pregnant ||
+        payload.screening.breastfeeding,
+      );
+      const equilibrado = buildScenarios({
+        goal: payload.goal.goal_type,
+        maintenance,
+        weightKg,
+        bmr,
+        riskFlags,
+      }).find((s) => s.key === "equilibrado");
+
+      const { error: gErr } = await supabase.from("user_goals").insert({
+        ...payload.goal,
+        user_id: uid,
+        is_active: true,
+        maintenance_calories: maintenance,
+        target_calories: equilibrado?.calories ?? null,
+        protein_g: equilibrado?.protein ?? null,
+        carbs_g: equilibrado?.carbs ?? null,
+        fat_g: equilibrado?.fat ?? null,
+        fiber_g: equilibrado?.fiber ?? null,
+        water_ml: equilibrado?.waterMl ?? null,
+        weekly_rate_kg: equilibrado?.weeklyRateKg ?? null,
+      });
       if (gErr) throw databaseError("Novo objetivo", gErr);
 
       // Preferências e triagem: um registro por usuário (upsert por user_id).
