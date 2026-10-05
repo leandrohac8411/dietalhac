@@ -1419,6 +1419,12 @@ export type Database = {
         };
         Returns: Json;
       };
+      close_stale_workout_sessions: {
+        Args: {
+          p_user_id?: string | null;
+        };
+        Returns: number;
+      };
       complete_workout_cycle: {
         Args: {
           p_duration_min?: number | null;

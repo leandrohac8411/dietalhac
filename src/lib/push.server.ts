@@ -160,6 +160,10 @@ async function deliverEvent(
 }
 
 export async function runScheduledPushes(now = new Date()) {
+  // Treinos esquecidos abertos há +3h são fechados aqui também, pra ninguém
+  // continuar "treinando" no app só porque esqueceu de finalizar.
+  await supabaseAdmin.rpc("close_stale_workout_sessions");
+
   const { data: preferences, error: preferenceError } = await supabaseAdmin
     .from("notification_preferences")
     .select("*")

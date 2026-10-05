@@ -130,7 +130,16 @@ function openSessionFor(
   workoutId: string | null | undefined,
 ): SessionForCompare | null {
   if (!workoutId) return null;
-  return sessions.find((s) => s.workout_id === workoutId && !s.finished_at) ?? null;
+  // Sessão aberta há +3h foi esquecida (ninguém treina tanto): não conta como em andamento.
+  const staleBefore = Date.now() - 3 * 60 * 60_000;
+  return (
+    sessions.find(
+      (s) =>
+        s.workout_id === workoutId &&
+        !s.finished_at &&
+        new Date(s.started_at).getTime() >= staleBefore,
+    ) ?? null
+  );
 }
 
 /** Sessão relevante pra marcar exercícios como concluídos no card: a que

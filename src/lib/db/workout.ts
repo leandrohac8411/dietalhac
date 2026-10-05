@@ -75,6 +75,9 @@ export function useSessions() {
     queryKey: ["workoutSessions"],
     queryFn: async () => {
       const uid = await requireUserId();
+      // Fecha sessões esquecidas abertas há +3h antes de listar (o erro é ignorado
+      // de propósito: falhar aqui não pode impedir a lista de carregar).
+      await supabase.rpc("close_stale_workout_sessions");
       const { data, error } = await supabase
         .from("workout_sessions")
         .select("*, workout_session_sets(*)")
