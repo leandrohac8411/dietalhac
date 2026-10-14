@@ -341,6 +341,16 @@ export function useGenerateDiet() {
         fat: goal.fat_g ?? 0,
         fiber: goal.fiber_g ?? 0,
       };
+      // Dieta carnívora: quase sem carboidrato — as calorias que iriam pro carbo
+      // passam pra gordura, senão a meta de macros da estratégia seria inalcançável.
+      if ((prefs?.dietary_restrictions ?? []).includes("carnivora")) {
+        targets.carbs = 20;
+        targets.fiber = 0;
+        targets.fat = Math.max(
+          targets.fat,
+          Math.round((targets.calories - targets.protein * 4 - targets.carbs * 4) / 9),
+        );
+      }
       const generationInput = {
         foods: catalog,
         mealsPerDay: prefs?.meals_per_day ?? 5,
@@ -361,7 +371,7 @@ export function useGenerateDiet() {
       // pequena das combinações cai dentro da tolerância — com poucas tentativas
       // isso gerava falha de geração por azar, não por impossibilidade real.
       // 200 tentativas custam <1s (é só CPU local) e praticamente eliminam isso.
-      const candidates = Array.from({ length: 200 }, () => generateMealPlan(generationInput));
+      const candidates = Array.from({ length: 600 }, () => generateMealPlan(generationInput));
       const viableCandidates = candidates.filter((candidate) =>
         mealPlanWithinTolerance(candidate, targets),
       );

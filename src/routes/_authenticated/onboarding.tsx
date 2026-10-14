@@ -112,6 +112,8 @@ const RESTRICTIONS: Opt[] = [
   { v: "sem_lactose", l: "Sem lactose" },
   { v: "sem_gluten", l: "Sem glúten" },
   { v: "sem_carne_vermelha", l: "Sem carne vermelha" },
+  { v: "carnivora", l: "Carnívora" },
+  { v: "frutas", l: "Rica em frutas e sucos" },
 ];
 const SUPPLEMENT_OPTIONS: Opt[] = [
   { v: "Whey protein", l: "Whey protein" },
@@ -1120,7 +1122,7 @@ function Onboarding() {
               />
             </Field>
             <div className="mt-4">
-              <Field label="Restrições alimentares">
+              <Field label="Restrições e estilo alimentar">
                 <PillMulti
                   options={RESTRICTIONS}
                   values={form.dietary_restrictions}

@@ -143,6 +143,9 @@ function allowedByRestrictions(food: FoodRow, restrictions: string[]): boolean {
     if (r === "sem_lactose" && t.includes("lactose")) return false;
     if (r === "sem_gluten" && t.includes("gluten")) return false;
     if (r === "sem_carne_vermelha" && t.includes("carne_vermelha")) return false;
+    // Carnívora: só alimentos de origem animal (sem maionese industrializada).
+    if (r === "carnivora" && (!t.includes("animal") || food.name.includes("Maionese")))
+      return false;
     // low_carb é tratado na composição/escala, não como exclusão.
   }
   return true;
@@ -313,6 +316,14 @@ const PROTEIN_ONLY_FALLBACK = [
   "Seitan",
   "Fígado",
 ];
+const EXOTIC_PROTEINS = [
+  "Tofu",
+  "Tempeh",
+  "Proteína vegana",
+  "Proteína texturizada",
+  "Seitan",
+  "Fígado",
+];
 const MAINSTREAM_CARB = [
   "Arroz",
   "Batata",
@@ -326,7 +337,7 @@ const MAINSTREAM_CARB = [
   "Milho",
 ];
 
-function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
+function archetype(name: string, lowCarb: boolean, role: MealRole, fruity = false): Slot[] {
   if (role === "pre_workout")
     return [
       {
@@ -366,6 +377,24 @@ function archetype(name: string, lowCarb: boolean, role: MealRole): Slot[] {
         prefer: ["Arroz", "Batata", "Mandioca", "Banana"],
         only: MAINSTREAM_CARB,
       },
+    ];
+  }
+  // Estilo "rica em frutas": café e lanches viram frutas + suco natural + um
+  // pouco de proteína leve; almoço e jantar seguem normais (a meta de proteína
+  // precisa de comida de verdade).
+  if (fruity && ["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(name)) {
+    return [
+      { cats: ["fruta"] },
+      { cats: ["fruta"] },
+      ...(name === "Café da manhã"
+        ? [
+            {
+              cats: ["outros"],
+              only: ["Suco de laranja", "Suco de maçã", "Suco de abacaxi", "Suco de acerola"],
+            },
+          ]
+        : []),
+      { cats: ["laticinio", "ovo"], prefer: ["Iogurte", "Ovo"] },
     ];
   }
   switch (name) {
@@ -468,7 +497,11 @@ function makePicker(
     // as opções — por causa de alergia/restrição/aversão da pessoa — cai pra
     // categoria inteira em vez de deixar a refeição sem nenhum candidato, o que
     // travava a geração inteira mesmo com alimentos elegíveis disponíveis.
-    const candidates = onlyFiltered.length > 0 ? onlyFiltered : byCategory;
+    let candidates = onlyFiltered.length > 0 ? onlyFiltered : byCategory;
+    // Seitan/tofu/fígado etc. só entram quando não há nenhuma opção comum
+    // (ex.: pessoa vegana) — nunca como sorteio entre iguais.
+    const everyday = candidates.filter((f) => !EXOTIC_PROTEINS.some((n) => f.name.includes(n)));
+    if (everyday.length > 0) candidates = everyday;
     if (candidates.length === 0) return undefined;
     const rank = (f: FoodRow) => {
       const preferred = slot.prefer && slot.prefer.some((p) => f.name.includes(p)) ? 0 : 1;
@@ -575,8 +608,17 @@ type DietTargets = { calories: number; protein: number; carbs: number; fat: numb
 
 /** Limites clínicos de porção. A categoria sozinha não basta: 170 g pode ser
  * normal para iogurte desnatado, mas é irreal para queijo gorduroso. */
+// Dieta carnívora precisa de porções bem maiores de carne/ovo/gordura pra fechar as calorias.
+let largePortions = false;
+
 function portionBounds(food: FoodRow): [number, number] {
   const name = deburr(food.name.toLowerCase());
+  if (largePortions && !isSupplement(food)) {
+    if (food.category === "proteina" || food.category === "peixe") return [80, 350];
+    if (food.category === "ovo") return [60, 300];
+    if (food.category === "gordura") return [0, 25];
+    if (name.includes("queijo") && !name.includes("cottage")) return [30, 120];
+  }
   if (isSupplement(food)) return [20, 40];
   if (name.includes("aveia")) return [20, 40];
   if (name.includes("chia")) return [5, 20];
@@ -587,6 +629,7 @@ function portionBounds(food: FoodRow): [number, number] {
   if (name.includes("presunto") || name.includes("peito de peru") || name.includes("mortadela"))
     return [20, 60];
   if (name.includes("clara")) return [30, 100];
+  if (name.includes("suco")) return [150, 300];
   if (name.includes("iogurte") || name.includes("skyr")) return [100, 250];
   if (name.includes("azeite") || name.includes("oleo")) return [0, 10];
   if (name.includes("pao")) return [25, 100];
@@ -1018,7 +1061,9 @@ export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets):
   return (
     within(totals.calories, targets.calories, 0.08) &&
     within(totals.protein, targets.protein, 0.1) &&
-    within(totals.carbs, targets.carbs, 0.12) &&
+    (targets.carbs < 40
+      ? Math.abs(totals.carbs - targets.carbs) <= 15
+      : within(totals.carbs, targets.carbs, 0.12)) &&
     within(totals.fat, targets.fat, 0.1) &&
     mealsAreBalanced
   );
@@ -1078,7 +1123,7 @@ export function buildMealPlanFromChoices(params: {
 }
 
 /** Monta a dieta respeitando restrições e aproximando os macros da meta. */
-export function generateMealPlan(params: {
+function generateMealPlanInner(params: {
   foods: FoodRow[];
   mealsPerDay: number;
   mealTimes?: string[] | null;
@@ -1095,7 +1140,9 @@ export function generateMealPlan(params: {
   activities?: TrainingEvent[] | null;
 }): PlanMeal[] {
   const restrictions = params.restrictions ?? [];
-  const lowCarb = restrictions.includes("low_carb");
+  const carnivore = restrictions.includes("carnivora");
+  const fruity = restrictions.includes("frutas");
+  const lowCarb = restrictions.includes("low_carb") || carnivore;
 
   const pool = eligibleDietFoods(params);
 
@@ -1120,13 +1167,16 @@ export function generateMealPlan(params: {
     const compatibleCombos = (roles[mi] === "regular" ? (NATURAL_COMBOS[name] ?? []) : [])
       .map((combo) => combo.map((foodName) => pool.find((food) => food.name === foodName)))
       .filter((combo) => combo.length > 0 && combo.every(Boolean)) as FoodRow[][];
-    const chosenCombo = lowCarb
-      ? undefined
-      : [...compatibleCombos].sort((a, b) => {
-          const repeats = (combo: FoodRow[]) =>
-            combo.reduce((count, food) => count + Number(usedFoods.has(food.id)), 0);
-          return repeats(a) - repeats(b) || Math.random() - 0.5;
-        })[0];
+    const fruitMeal =
+      fruity && ["Café da manhã", "Lanche da manhã", "Lanche da tarde"].includes(name);
+    const chosenCombo =
+      lowCarb || fruitMeal
+        ? undefined
+        : [...compatibleCombos].sort((a, b) => {
+            const repeats = (combo: FoodRow[]) =>
+              combo.reduce((count, food) => count + Number(usedFoods.has(food.id)), 0);
+            return repeats(a) - repeats(b) || Math.random() - 0.5;
+          })[0];
 
     if (chosenCombo) {
       chosenCombo.forEach((food) => {
@@ -1141,7 +1191,12 @@ export function generateMealPlan(params: {
       return;
     }
 
-    for (const slot of archetype(name, lowCarb, roles[mi] ?? "regular")) {
+    for (const slot of archetype(
+      name,
+      lowCarb,
+      carnivore ? "regular" : (roles[mi] ?? "regular"),
+      fruity,
+    )) {
       const food = pick(slot);
       if (food) {
         items.push({
@@ -2354,5 +2409,15 @@ function applySetHierarchy(workouts: PlanWorkout[], pool: ExerciseRow[]): void {
         prescription.sets = clampN(prescription.sets, 3, 4);
       }
     }
+  }
+}
+
+/** Monta a dieta respeitando restrições e aproximando os macros da meta. */
+export function generateMealPlan(params: Parameters<typeof generateMealPlanInner>[0]): PlanMeal[] {
+  largePortions = (params.restrictions ?? []).includes("carnivora");
+  try {
+    return generateMealPlanInner(params);
+  } finally {
+    largePortions = false;
   }
 }
