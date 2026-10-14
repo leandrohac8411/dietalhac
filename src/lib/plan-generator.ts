@@ -1024,7 +1024,13 @@ export function mealPlanQualityScore(plan: PlanMeal[], targets: DietTargets): nu
   return mealPlanDeviation(plan, targets) + mealPlanNaturalnessPenalty(plan);
 }
 
-export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets): boolean {
+/** looseness > 1 afrouxa as tolerâncias de macros (usado como plano B quando nenhuma
+ *  combinação passa na tolerância normal). */
+export function mealPlanWithinTolerance(
+  plan: PlanMeal[],
+  targets: DietTargets,
+  looseness = 1,
+): boolean {
   const totals = mealPlanMacros(plan);
   const within = (actual: number, target: number, tolerance: number) =>
     target <= 0 || Math.abs(actual - target) / target <= tolerance;
@@ -1059,12 +1065,12 @@ export function mealPlanWithinTolerance(plan: PlanMeal[], targets: DietTargets):
     );
   });
   return (
-    within(totals.calories, targets.calories, 0.08) &&
-    within(totals.protein, targets.protein, 0.1) &&
+    within(totals.calories, targets.calories, 0.08 * looseness) &&
+    within(totals.protein, targets.protein, 0.1 * looseness) &&
     (targets.carbs < 40
-      ? Math.abs(totals.carbs - targets.carbs) <= 15
-      : within(totals.carbs, targets.carbs, 0.12)) &&
-    within(totals.fat, targets.fat, 0.1) &&
+      ? Math.abs(totals.carbs - targets.carbs) <= 15 * looseness
+      : within(totals.carbs, targets.carbs, 0.12 * looseness)) &&
+    within(totals.fat, targets.fat, 0.1 * looseness) &&
     mealsAreBalanced
   );
 }

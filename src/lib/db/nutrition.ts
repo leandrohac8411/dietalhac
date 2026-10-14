@@ -372,9 +372,15 @@ export function useGenerateDiet() {
       // isso gerava falha de geração por azar, não por impossibilidade real.
       // 200 tentativas custam <1s (é só CPU local) e praticamente eliminam isso.
       const candidates = Array.from({ length: 600 }, () => generateMealPlan(generationInput));
-      const viableCandidates = candidates.filter((candidate) =>
-        mealPlanWithinTolerance(candidate, targets),
-      );
+      // Plano B: se nada passa na tolerância normal, aceita a melhor combinação dentro de
+      // uma tolerância mais folgada em vez de falhar a geração inteira.
+      let viableCandidates: PlanMeal[] = [];
+      for (const looseness of [1, 1.5, 2.2]) {
+        viableCandidates = candidates.filter((candidate) =>
+          mealPlanWithinTolerance(candidate, targets, looseness),
+        );
+        if (viableCandidates.length > 0) break;
+      }
       const candidatePool = viableCandidates.length > 0 ? viableCandidates : candidates;
       const localPlan: PlanMeal[] = candidatePool.reduce((best, candidate) =>
         mealPlanQualityScore(candidate, targets) < mealPlanQualityScore(best, targets)
@@ -444,7 +450,7 @@ export function useGenerateDiet() {
         mealPlanQualityScore(aiPlan, targets) < mealPlanQualityScore(localPlan, targets)
           ? aiPlan
           : localPlan;
-      if (!mealPlanWithinTolerance(plan, targets)) {
+      if (!mealPlanWithinTolerance(plan, targets, 2.2)) {
         throw new Error(
           "Não encontramos uma combinação com porções naturais dentro das suas metas. Seu plano atual foi preservado; tente regenerar novamente.",
         );
