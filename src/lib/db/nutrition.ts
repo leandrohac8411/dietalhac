@@ -371,7 +371,7 @@ export function useGenerateDiet() {
       // pequena das combinações cai dentro da tolerância — com poucas tentativas
       // isso gerava falha de geração por azar, não por impossibilidade real.
       // 200 tentativas custam <1s (é só CPU local) e praticamente eliminam isso.
-      const candidates = Array.from({ length: 600 }, () => generateMealPlan(generationInput));
+      const candidates = Array.from({ length: 1200 }, () => generateMealPlan(generationInput));
       // Plano B: se nada passa na tolerância normal, aceita a melhor combinação dentro de
       // uma tolerância mais folgada em vez de falhar a geração inteira.
       let viableCandidates: PlanMeal[] = [];

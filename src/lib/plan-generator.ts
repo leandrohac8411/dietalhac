@@ -155,6 +155,7 @@ function allowedByRestrictions(food: FoodRow, restrictions: string[]): boolean {
 // ("Incluir alimentos incomuns") ou se a dieta (vegana/vegetariana) depender deles.
 const UNCOMMON_FOODS = [
   "Lentilha",
+  "Soja",
   "Chia",
   "Seitan",
   "Tofu",
@@ -247,7 +248,7 @@ function prep(category: string): string | undefined {
   }
 }
 
-type Slot = { cats: string[]; prefer?: string[]; only?: string[] };
+type Slot = { cats: string[]; prefer?: string[]; only?: string[]; repeatOk?: boolean };
 
 const NATURAL_COMBOS: Record<string, string[][]> = {
   "Café da manhã": [
@@ -455,27 +456,27 @@ function archetype(name: string, lowCarb: boolean, role: MealRole, fruity = fals
             { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["leguminosa"] },
             { cats: ["vegetal"] },
-            { cats: ["gordura"] },
+            { cats: ["gordura"], prefer: ["Azeite"], repeatOk: true },
           ]
         : [
             { cats: ["carboidrato"], prefer: ["Arroz", "Batata", "Mandioca", "Macarrão"] },
             { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["leguminosa"] },
             { cats: ["vegetal"] },
-            { cats: ["gordura"] },
+            { cats: ["gordura"], prefer: ["Azeite"], repeatOk: true },
           ];
     case "Jantar":
       return lowCarb
         ? [
             { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["vegetal"] },
-            { cats: ["gordura"] },
+            { cats: ["gordura"], prefer: ["Azeite"], repeatOk: true },
           ]
         : [
             { cats: ["carboidrato"], prefer: ["Batata", "Mandioca", "Arroz"] },
             { cats: ["proteina", "peixe"], prefer: MAINSTREAM_PROTEIN },
             { cats: ["vegetal"] },
-            { cats: ["gordura"] },
+            { cats: ["gordura"], prefer: ["Azeite"], repeatOk: true },
           ];
     case "Lanche da manhã":
       return lowCarb
@@ -544,7 +545,7 @@ function makePicker(
     if (candidates.length === 0) return undefined;
     const rank = (f: FoodRow) => {
       const preferred = slot.prefer && slot.prefer.some((p) => f.name.includes(p)) ? 0 : 1;
-      const fresh = used.has(f.id) ? 1 : 0;
+      const fresh = used.has(f.id) && !slot.repeatOk ? 1 : 0;
       const normalized = deburr(f.name.toLowerCase());
       const personal = [...liked, ...supplementNames].some((token) => normalized.includes(token))
         ? 0
@@ -1312,6 +1313,7 @@ export function generateMealAlternatives(params: {
   }
 
   const candidates = new Map<string, MealAlternative>();
+  const finalSignatures = new Set<string>();
   for (const selected of selections) {
     const signature = selected
       .map((food) => deburr(food.name.toLowerCase()))
@@ -1333,19 +1335,28 @@ export function generateMealAlternatives(params: {
       current,
     )[0];
     if (!option || hasBreadWithoutFilling(option) || hasMainDishCarbInSnack(option)) continue;
+    // Os reparos acima podem trocar alimentos e deixar a opção igual à atual (ou a
+    // outra já gerada) — compara pelo resultado final, não pela seleção inicial.
+    const finalSignature = option.items
+      .map((item) => deburr(item.food_name.toLowerCase()))
+      .sort()
+      .join("|");
+    if (finalSignature === currentSignature || finalSignatures.has(finalSignature)) continue;
+    finalSignatures.add(finalSignature);
     candidates.set(signature, {
       ...option,
       deviation: mealPlanDeviation([option], current),
     });
   }
 
-  return [...candidates.values()]
-    .sort(
-      (a, b) =>
-        mealPlanQualityScore([a], current) - mealPlanQualityScore([b], current) ||
-        a.deviation - b.deviation,
-    )
-    .slice(0, count);
+  const sorted = [...candidates.values()].sort(
+    (a, b) =>
+      mealPlanQualityScore([a], current) - mealPlanQualityScore([b], current) ||
+      a.deviation - b.deviation,
+  );
+  // "Mesmas metas": prefere opções que realmente ficam perto dos macros atuais.
+  const close = sorted.filter((option) => option.deviation <= 0.8);
+  return (close.length >= 2 ? close : sorted).slice(0, count);
 }
 
 export type PlanWorkoutExercise = {
