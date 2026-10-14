@@ -3,6 +3,9 @@
  * Substituíveis por IA no futuro — mantêm o mesmo formato de saída.
  */
 
+import { MEAL_TEMPLATES } from "./diet-templates.ts";
+import type { MealKind, MealTemplate, TemplateOption } from "./diet-templates.ts";
+
 export type PlanFoodItem = {
   food_item_id?: string | undefined;
   food_name: string;
@@ -15,6 +18,8 @@ export type PlanFoodItem = {
   fiber_g: number;
   /** Usada somente na validação culinária; não precisa ser persistida. */
   category?: string | undefined;
+  /** Porção-base do modelo de refeição; só pra comparar o quanto a porção final se afastou. */
+  base_quantity?: number | undefined;
   preparation?: string | undefined;
   notes?: string | undefined;
 };
@@ -203,6 +208,7 @@ export function eligibleDietFoods(params: {
 function hasPreparation(food: FoodRow): boolean {
   const name = deburr(food.name.toLowerCase());
   if (isSupplement(food)) return false;
+  if (food.category === "carboidrato" && /pao|aveia|granola|tapioca/.test(name)) return false;
   return !(
     name.includes("presunto") ||
     name.includes("peito de peru fatiado") ||
@@ -212,7 +218,12 @@ function hasPreparation(food: FoodRow): boolean {
   );
 }
 
-function scaleFood(food: FoodRow, grams: number, preparation?: string): PlanFoodItem {
+function scaleFood(
+  food: FoodRow,
+  grams: number,
+  preparation?: string,
+  baseGrams?: number,
+): PlanFoodItem {
   const ratio = grams / food.portion;
   return {
     food_item_id: food.id,
@@ -225,7 +236,8 @@ function scaleFood(food: FoodRow, grams: number, preparation?: string): PlanFood
     fat_g: Math.round(food.fat_g * ratio * 10) / 10,
     fiber_g: Math.round(food.fiber_g * ratio * 10) / 10,
     category: food.category,
-    preparation: hasPreparation(food) ? preparation : undefined,
+    base_quantity: baseGrams,
+    preparation: hasPreparation(food) && preparation ? preparation : undefined,
   };
 }
 
@@ -628,6 +640,10 @@ type BuildItem = {
   grams: number;
   mealIndex: number;
   preparation?: string | undefined;
+  /** Limites e passo próprios (modelos de refeição): ex.: ovo anda de 50 em 50 g. */
+  bounds?: [number, number] | undefined;
+  step?: number | undefined;
+  baseGrams?: number | undefined;
 };
 
 function macrosOf(items: BuildItem[]) {
@@ -732,7 +748,7 @@ function macroObjective(items: BuildItem[], targets: DietTargets): number {
  * este algoritmo decide as quantidades finais dentro de limites plausíveis. */
 function optimizePortions(items: BuildItem[], targets: DietTargets): void {
   for (const item of items) {
-    const [lo, hi] = portionBounds(item.food);
+    const [lo, hi] = item.bounds ?? portionBounds(item.food);
     item.grams = clampN(item.grams, lo, hi);
   }
 
@@ -740,11 +756,12 @@ function optimizePortions(items: BuildItem[], targets: DietTargets): void {
     for (let pass = 0; pass < 30; pass += 1) {
       let improved = false;
       for (const item of items) {
-        const [lo, hi] = portionBounds(item.food);
+        const [lo, hi] = item.bounds ?? portionBounds(item.food);
         const original = item.grams;
         let bestGrams = original;
         let bestScore = macroObjective(items, targets);
-        for (const candidate of [original - step, original + step, lo, hi]) {
+        const move = item.step ? Math.max(step, item.step) : step;
+        for (const candidate of [original - move, original + move, lo, hi]) {
           item.grams = clampN(candidate, lo, hi);
           const score = macroObjective(items, targets);
           if (score + 1e-9 < bestScore) {
@@ -913,13 +930,18 @@ function balanceAndFormat(
 
   optimizePortions(items, targets);
 
-  for (const item of items) item.grams = Math.max(5, Math.round(item.grams / 5) * 5);
+  for (const item of items) {
+    if (item.step) {
+      const [lo] = item.bounds ?? [item.step, item.step];
+      item.grams = Math.max(lo, Math.round(item.grams / item.step) * item.step);
+    } else item.grams = Math.max(5, Math.round(item.grams / 5) * 5);
+  }
   return names.map((name, index) => ({
     name,
     scheduled_time: times[index]!,
     items: items
-      .filter((item) => item.mealIndex === index)
-      .map((item) => scaleFood(item.food, item.grams, item.preparation)),
+      .filter((item) => item.mealIndex === index && item.grams > 0)
+      .map((item) => scaleFood(item.food, item.grams, item.preparation, item.baseGrams)),
   }));
 }
 
@@ -986,7 +1008,8 @@ function hasMainDishCarbInSnack(meal: PlanMeal): boolean {
     "cará",
   ];
   return meal.items.some((item) => {
-    const name = deburr(item.food_name.toLowerCase());
+    // Ignora o que vem entre parênteses (ex.: "Proteína vegana (ervilha/arroz)").
+    const name = deburr(item.food_name.toLowerCase()).split("(")[0]!;
     return mainDishNames.some((mainDish) => name.includes(deburr(mainDish)));
   });
 }
@@ -1027,6 +1050,16 @@ export function mealPlanNaturalnessPenalty(plan: PlanMeal[]): number {
         name.includes("cottage"),
     );
 
+    // Prefere cardápios com porções perto das do modelo (arroz 150 g, não 80 g).
+    const withBase = meal.items.filter((item) => item.base_quantity);
+    if (withBase.length > 0) {
+      const meanSq =
+        withBase.reduce(
+          (sum, item) => sum + ((item.quantity - item.base_quantity!) / item.base_quantity!) ** 2,
+          0,
+        ) / withBase.length;
+      penalty += 0.3 * meanSq;
+    }
     if (meal.items.length < 2) penalty += 0.8;
     if (isMainMeal && !hasProtein) penalty += 1.2;
     // Almoço brasileiro: arroz e feijão são o esperado; sem eles, o cardápio
@@ -1168,6 +1201,73 @@ export function buildMealPlanFromChoices(params: {
   );
 }
 
+/** Monta as refeições a partir dos modelos (estilo plano de nutricionista).
+ *  Retorna null se alguma refeição não tiver nenhum modelo viável com os
+ *  alimentos disponíveis — aí o gerador antigo assume. */
+function buildTemplateItems(params: {
+  pool: FoodRow[];
+  names: string[];
+  roles: MealRole[];
+  likedFoods?: string | null | undefined;
+  vegan?: boolean;
+}): BuildItem[] | null {
+  const byName = new Map(params.pool.map((food) => [food.name, food]));
+  const liked = preferenceTokens(params.likedFoods);
+  const isLiked = (name: string) =>
+    liked.some((token) => deburr(name.toLowerCase()).includes(token));
+  const usedOptions = new Set<string>();
+  const usedTemplates = new Set<string>();
+  const items: BuildItem[] = [];
+
+  const pickRandom = <T>(list: T[]): T => list[Math.floor(Math.random() * list.length)]!;
+
+  for (let mealIndex = 0; mealIndex < params.names.length; mealIndex += 1) {
+    const name = params.names[mealIndex]!;
+    const role = params.roles[mealIndex] ?? "regular";
+    const isMain = name === "Almoço" || name === "Jantar";
+    let kind: MealKind;
+    if (name === "Ceia") kind = "supper";
+    else if (role === "pre_workout" && !isMain) kind = "pre";
+    else if (role === "post_workout" && !isMain) kind = "post";
+    else if (name === "Café da manhã") kind = "breakfast";
+    else if (name === "Almoço") kind = "lunch";
+    else if (name === "Jantar") kind = "dinner";
+    else kind = "snack";
+
+    const feasible = (MEAL_TEMPLATES[kind] ?? []).filter(
+      (template: MealTemplate) =>
+        (!template.veganOnly || params.vegan) &&
+        template.slots.every(
+          (slot) => slot.optional || slot.opts.some((option) => byName.has(option.n)),
+        ),
+    );
+    if (feasible.length === 0) return null;
+    const fresh = feasible.filter((template) => !usedTemplates.has(template.id));
+    const template = pickRandom(fresh.length > 0 ? fresh : feasible);
+    usedTemplates.add(template.id);
+
+    for (const slot of template.slots) {
+      const available = slot.opts.filter((option: TemplateOption) => byName.has(option.n));
+      if (available.length === 0) continue;
+      const tier = (option: TemplateOption) =>
+        isLiked(option.n) ? 0 : usedOptions.has(option.n) ? 2 : 1;
+      const best = Math.min(...available.map(tier));
+      const choice = pickRandom(available.filter((option) => tier(option) === best));
+      usedOptions.add(choice.n);
+      items.push({
+        food: byName.get(choice.n)!,
+        grams: choice.g,
+        mealIndex,
+        preparation: choice.prep ?? prep(byName.get(choice.n)!.category),
+        bounds: [choice.min ?? Math.round(choice.g * 0.5), choice.max ?? Math.round(choice.g * 2)],
+        step: choice.step,
+        baseGrams: choice.g,
+      });
+    }
+  }
+  return items;
+}
+
 /** Monta a dieta respeitando restrições e aproximando os macros da meta. */
 function generateMealPlanInner(params: {
   foods: FoodRow[];
@@ -1205,6 +1305,19 @@ function generateMealPlanInner(params: {
     if (roles[index] === "post_workout") return `${name} (pós-treino)`;
     return name;
   });
+
+  // Padrão: refeições-modelo de nutricionista. Estilos especiais (low carb,
+  // carnívora, frutas) continuam no gerador por slots abaixo.
+  if (!lowCarb && !fruity) {
+    const templateItems = buildTemplateItems({
+      pool,
+      names,
+      roles,
+      likedFoods: params.likedFoods,
+      vegan: restrictions.includes("vegano"),
+    });
+    if (templateItems) return balanceAndFormat(displayNames, times, templateItems, params.targets);
+  }
 
   const usedFoods = new Set<string>();
   const pick = makePicker(pool, params.likedFoods, params.supplements, usedFoods);
@@ -1297,56 +1410,68 @@ export function generateMealAlternatives(params: {
     .map((item) => deburr(item.food_name.toLowerCase()))
     .sort()
     .join("|");
-  const selections: FoodRow[][] = [];
-  for (const combo of NATURAL_COMBOS[baseName] ?? []) {
-    const selected = combo.map((name) => params.foods.find((food) => food.name === name));
-    if (selected.every(Boolean)) selections.push(selected as FoodRow[]);
-  }
-
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const used = new Set<string>();
-    const pick = makePicker(params.foods, null, null, used);
-    const selected = archetype(baseName, false, role)
-      .map((slot) => pick(slot))
-      .filter(Boolean) as FoodRow[];
-    if (selected.length > 0) selections.push(selected);
-  }
-
   const candidates = new Map<string, MealAlternative>();
   const finalSignatures = new Set<string>();
-  for (const selected of selections) {
-    const signature = selected
-      .map((food) => deburr(food.name.toLowerCase()))
+  const consider = (buildItems: BuildItem[], repair: boolean) => {
+    const signature = buildItems
+      .map((item) => deburr(item.food.name.toLowerCase()))
       .sort()
       .join("|");
-    if (!signature || signature === currentSignature || candidates.has(signature)) continue;
-    const buildItems: BuildItem[] = selected.map((food) => ({
-      food,
-      grams: BASE_GRAMS[food.category] ?? 100,
-      mealIndex: 0,
-      preparation: prep(food.category),
-    }));
-    repairProteinSelection([baseName], buildItems, params.foods, current);
-    repairMealCompatibility([baseName], buildItems, params.foods);
+    if (!signature || signature === currentSignature || candidates.has(signature)) return;
+    if (repair) {
+      repairProteinSelection([baseName], buildItems, params.foods, current);
+      repairMealCompatibility([baseName], buildItems, params.foods);
+    }
     const option = balanceAndFormat(
       [params.mealName],
       [params.scheduledTime],
       buildItems,
       current,
     )[0];
-    if (!option || hasBreadWithoutFilling(option) || hasMainDishCarbInSnack(option)) continue;
-    // Os reparos acima podem trocar alimentos e deixar a opção igual à atual (ou a
-    // outra já gerada) — compara pelo resultado final, não pela seleção inicial.
+    if (!option || hasBreadWithoutFilling(option) || hasMainDishCarbInSnack(option)) return;
+    // Os reparos podem trocar alimentos e deixar a opção igual à atual (ou a outra
+    // já gerada) — compara pelo resultado final, não pela seleção inicial.
     const finalSignature = option.items
       .map((item) => deburr(item.food_name.toLowerCase()))
       .sort()
       .join("|");
-    if (finalSignature === currentSignature || finalSignatures.has(finalSignature)) continue;
+    if (finalSignature === currentSignature || finalSignatures.has(finalSignature)) return;
     finalSignatures.add(finalSignature);
-    candidates.set(signature, {
-      ...option,
-      deviation: mealPlanDeviation([option], current),
-    });
+    candidates.set(signature, { ...option, deviation: mealPlanDeviation([option], current) });
+  };
+
+  // 1) Refeições-modelo (mesmo estilo do cardápio principal).
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const items = buildTemplateItems({ pool: params.foods, names: [baseName], roles: [role] });
+    if (items) consider(items, false);
+  }
+
+  // 2) Plano B: gerador por slots, só se os modelos não deram opções suficientes.
+  if (candidates.size < 2) {
+    const selections: FoodRow[][] = [];
+    for (const combo of NATURAL_COMBOS[baseName] ?? []) {
+      const selected = combo.map((name) => params.foods.find((food) => food.name === name));
+      if (selected.every(Boolean)) selections.push(selected as FoodRow[]);
+    }
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const used = new Set<string>();
+      const pick = makePicker(params.foods, null, null, used);
+      const selected = archetype(baseName, false, role)
+        .map((slot) => pick(slot))
+        .filter(Boolean) as FoodRow[];
+      if (selected.length > 0) selections.push(selected);
+    }
+    for (const selected of selections) {
+      consider(
+        selected.map((food) => ({
+          food,
+          grams: BASE_GRAMS[food.category] ?? 100,
+          mealIndex: 0,
+          preparation: prep(food.category),
+        })),
+        true,
+      );
+    }
   }
 
   const sorted = [...candidates.values()].sort(
