@@ -73,8 +73,9 @@ import {
   useUpdateMealTime,
 } from "@/lib/db";
 import type { FoodItem, FoodLogRow, MealItemRow, SavedMeal } from "@/lib/db";
-import { eligibleDietFoods, generateMealAlternatives, mealPlanMacros } from "@/lib/plan-generator";
-import type { FoodRow, MealAlternative, PlanFoodItem } from "@/lib/plan-generator";
+import { eligibleDietFoods } from "@/lib/plan-generator";
+import type { FoodRow } from "@/lib/plan-generator";
+import { householdMeasure, substitutionOptions } from "@/lib/diet-substitutions";
 import { estimateWorkoutKcal, formatKcal, formatNumber, mealGapWarnings } from "@/lib/fitness";
 import { searchOffProducts } from "@/lib/openfoodfacts";
 import type { OffProduct } from "@/lib/openfoodfacts";
@@ -314,6 +315,7 @@ function Dieta() {
           key={meal.id}
           meal={meal}
           foods={foods.data ?? []}
+          eligibleFoods={eligibleFoods as FoodItem[]}
           subsByFood={subsByFood}
           completed={completedMealIds.has(meal.id)}
           consumedLog={logByMealId.get(meal.id) ?? null}
@@ -330,8 +332,85 @@ function Dieta() {
         />
       ))}
 
+      <NutrientReport meals={meals} />
+
       <Disclaimer />
     </div>
+  );
+}
+
+/** Relatório de nutrientes por refeição, no estilo do plano de uma nutricionista. */
+function NutrientReport({ meals }: { meals: MealWithItems[] }) {
+  const rows = meals.map((meal) => {
+    const items = meal.meal_items ?? [];
+    return {
+      id: meal.id,
+      name: meal.name,
+      time: meal.scheduled_time?.slice(0, 5) ?? "",
+      ...macroTotals(items),
+      fiber: items.reduce((sum, item) => sum + Number(item.fiber_g ?? 0), 0),
+    };
+  });
+  const total = rows.reduce(
+    (a, r) => ({
+      kcal: a.kcal + r.kcal,
+      p: a.p + r.p,
+      c: a.c + r.c,
+      f: a.f + r.f,
+      fiber: a.fiber + r.fiber,
+    }),
+    { kcal: 0, p: 0, c: 0, f: 0, fiber: 0 },
+  );
+  if (rows.length === 0) return null;
+  return (
+    <SectionCard
+      title="Relatório de nutrientes"
+      description="Distribuição de calorias e macros por refeição."
+      icon={<Target className="h-4 w-4" />}
+      accent="blue"
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[460px] text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="py-2 pr-3 font-semibold">Refeição</th>
+              <th className="px-2 py-2 text-right font-semibold">Proteínas</th>
+              <th className="px-2 py-2 text-right font-semibold">Lipídeos</th>
+              <th className="px-2 py-2 text-right font-semibold">Carboidratos</th>
+              <th className="py-2 pl-2 text-right font-semibold">Calorias</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="py-2 pr-3">
+                  <span className="font-medium">{r.name}</span>
+                  {r.time ? (
+                    <span className="ml-2 text-xs text-muted-foreground">{r.time}</span>
+                  ) : null}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.p)} g</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.f)} g</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.c)} g</td>
+                <td className="py-2 pl-2 text-right tabular-nums">{Math.round(r.kcal)} kcal</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 font-semibold">
+              <td className="py-2 pr-3">Total das refeições</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatNumber(total.p)} g</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatNumber(total.f)} g</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatNumber(total.c)} g</td>
+              <td className="py-2 pl-2 text-right tabular-nums">{Math.round(total.kcal)} kcal</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Fibras do dia: {formatNumber(total.fiber)} g.
+      </p>
+    </SectionCard>
   );
 }
 
@@ -1073,6 +1152,7 @@ function FreeFoodLog({
 function MealCard({
   meal,
   foods,
+  eligibleFoods,
   subsByFood,
   completed,
   consumedLog,
@@ -1080,6 +1160,8 @@ function MealCard({
 }: {
   meal: MealWithItems;
   foods: FoodItem[];
+  /** Só o que a pessoa pode comer (restrições, alergias, alimentos incomuns). */
+  eligibleFoods: FoodItem[];
   subsByFood: Map<string, FoodItem[]>;
   completed: boolean;
   consumedLog: FoodLogRow | null;
@@ -1087,9 +1169,9 @@ function MealCard({
 }) {
   const updateTime = useUpdateMealTime();
   const toggleCompletion = useToggleMealCompletion();
-  const replaceMeal = useReplaceMealItems();
+  const swap = useSwapMealItem();
   const [timeDraft, setTimeDraft] = useState(meal.scheduled_time?.slice(0, 5) ?? "");
-  const [alternatives, setAlternatives] = useState<MealAlternative[] | null>(null);
+  const [showSubs, setShowSubs] = useState(false);
   const items = meal.meal_items ?? [];
   const mt = macroTotals(items);
   const consumedItems = Array.isArray(consumedLog?.consumed_items)
@@ -1129,51 +1211,6 @@ function MealCard({
               : `${formatKcal(mt.kcal)} somadas ao consumo de hoje.`,
           }),
         onError: () => toast.error("Não foi possível atualizar a refeição."),
-      },
-    );
-  }
-
-  function toggleAlternatives() {
-    if (alternatives) {
-      setAlternatives(null);
-      return;
-    }
-    const categoryById = new Map(foods.map((food) => [food.id, food.category]));
-    const currentItems: PlanFoodItem[] = items.map((item) => ({
-      food_item_id: item.food_item_id ?? undefined,
-      food_name: item.food_name,
-      quantity: Number(item.quantity),
-      unit: item.unit,
-      calories: Number(item.calories),
-      protein_g: Number(item.protein_g),
-      carbs_g: Number(item.carbs_g),
-      fat_g: Number(item.fat_g),
-      fiber_g: Number(item.fiber_g),
-      preparation: item.preparation ?? undefined,
-      notes: item.notes ?? undefined,
-      category: item.food_item_id ? categoryById.get(item.food_item_id) : undefined,
-    }));
-    const generated = generateMealAlternatives({
-      foods: foods as FoodRow[],
-      mealName: meal.name,
-      scheduledTime: meal.scheduled_time?.slice(0, 5) ?? "12:00",
-      currentItems,
-      count: 4,
-    });
-    setAlternatives(generated);
-  }
-
-  function applyAlternative(option: MealAlternative) {
-    replaceMeal.mutate(
-      { mealId: meal.id, items: option.items },
-      {
-        onSuccess: () => {
-          setAlternatives(null);
-          toast.success("Opção aplicada", {
-            description: `${meal.name} foi atualizada. O que você já registrou hoje foi preservado.`,
-          });
-        },
-        onError: () => toast.error("Não foi possível aplicar esta opção."),
       },
     );
   }
@@ -1363,88 +1400,71 @@ function MealCard({
           variant="outline"
           size="sm"
           className="w-full justify-between rounded-xl border-accent/20 bg-accent/[0.035] px-4 hover:border-accent/40 hover:bg-accent/[0.07]"
-          onClick={toggleAlternatives}
-          aria-expanded={alternatives !== null}
+          onClick={() => setShowSubs((v) => !v)}
+          aria-expanded={showSubs}
         >
           <span className="flex items-center gap-2">
             <Replace className="h-4 w-4 text-accent" />
-            {alternatives ? "Fechar opções" : "Ver 4 opções equivalentes"}
+            {showSubs ? "Fechar substituições" : "Ver substituições"}
           </span>
-          <span className="text-xs font-normal text-muted-foreground">mesmas metas</span>
+          <span className="text-xs font-normal text-muted-foreground">porções equivalentes</span>
         </Button>
 
-        {alternatives ? (
-          <div className="mt-3 rounded-2xl border border-accent/15 bg-background/35 p-2.5 sm:p-3">
-            <div className="mb-3 px-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-                Opções equivalentes
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Porções recalculadas para permanecer próximas desta refeição.
-              </p>
-            </div>
-            {alternatives.length > 0 ? (
-              <div className="grid gap-2 lg:grid-cols-2">
-                {alternatives.map((option, index) => {
-                  const optionTotals = mealPlanMacros([option]);
-                  const kcalDiff = Math.round(optionTotals.calories - mt.kcal);
-                  return (
-                    <div
-                      key={option.items.map((item) => item.food_item_id).join("-")}
-                      className="flex min-h-40 flex-col rounded-xl border border-border/70 bg-card/80 p-3"
-                    >
-                      <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-2.5">
-                        <div>
-                          <p className="text-sm font-semibold">Opção {index + 1}</p>
-                          <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                            {Math.round(optionTotals.calories)} kcal · P{" "}
-                            {Math.round(optionTotals.protein)}g · C {Math.round(optionTotals.carbs)}
-                            g · G {Math.round(optionTotals.fat)}g
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-full border border-accent/20 bg-accent/5 px-2 py-1 text-[10px] font-medium tabular-nums text-accent">
-                          {kcalDiff === 0
-                            ? "mesma kcal"
-                            : `${kcalDiff > 0 ? "+" : ""}${kcalDiff} kcal`}
-                        </span>
-                      </div>
-                      <div className="flex-1 space-y-1.5 py-3">
-                        {option.items.map((item) => (
-                          <div
-                            key={item.food_item_id}
-                            className="flex items-baseline justify-between gap-3 text-xs"
-                          >
-                            <span className="min-w-0 truncate text-foreground/90">
-                              {item.food_name}
-                            </span>
-                            <span className="shrink-0 tabular-nums text-muted-foreground">
-                              {item.quantity} {item.unit}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => applyAlternative(option)}
-                        disabled={replaceMeal.isPending}
-                      >
-                        <Check className="mr-1.5 h-3.5 w-3.5" /> Usar esta opção
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
-                O catálogo ainda não possui quatro combinações compatíveis com esta refeição.
-              </p>
-            )}
+        {showSubs ? (
+          <div className="mt-3 space-y-4 rounded-2xl border border-accent/15 bg-background/35 p-3 sm:p-4">
+            {items.map((item) => {
+              const options = substitutionOptions({
+                foodName: item.food_name,
+                mealName: meal.name,
+                grams: Number(item.quantity),
+                calories: Number(item.calories),
+                protein: Number(item.protein_g),
+                foods: eligibleFoods,
+              });
+              if (options.length === 0) return null;
+              return (
+                <div key={item.id}>
+                  <p className="text-xs font-semibold text-foreground">
+                    Opções de substituição para {item.food_name}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {options.map((option) => {
+                      const substitute = eligibleFoods.find((food) => food.id === option.foodId);
+                      return (
+                        <button
+                          key={option.foodId}
+                          type="button"
+                          disabled={!substitute || swap.isPending}
+                          onClick={() => {
+                            if (!substitute) return;
+                            swap.mutate(
+                              { item, substitute, grams: option.grams },
+                              {
+                                onSuccess: () =>
+                                  toast.success("Alimento trocado", {
+                                    description: `${item.food_name} → ${option.name}`,
+                                  }),
+                                onError: () => toast.error("Não foi possível trocar o alimento."),
+                              },
+                            );
+                          }}
+                          className="rounded-lg border border-border/70 bg-card/80 px-2.5 py-1.5 text-left text-xs transition-colors hover:border-accent/50 hover:bg-accent/5 disabled:opacity-50"
+                        >
+                          <span className="font-medium">{option.name}</span>
+                          <span className="ml-1.5 tabular-nums text-muted-foreground">
+                            {option.grams} {option.unit}
+                            {option.measure ? ` (${option.measure.replace("≈ ", "")})` : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
             {consumedLog ? (
-              <p className="mt-3 px-1 text-[11px] text-muted-foreground">
-                A alteração vale para o planejamento. Seu consumo registrado hoje não será
-                modificado.
+              <p className="px-1 text-[11px] text-muted-foreground">
+                A troca vale para o planejamento. Seu consumo registrado hoje não será modificado.
               </p>
             ) : null}
           </div>
@@ -1467,6 +1487,9 @@ function ItemRow({ item, subs }: { item: MealItemRow; subs: FoodItem[] }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{item.food_name}</p>
         <p className="truncate text-xs text-muted-foreground">
+          {householdMeasure(item.food_name, Number(item.quantity))
+            ? `${householdMeasure(item.food_name, Number(item.quantity))} · `
+            : ""}
           {Math.round(Number(item.calories))} kcal · P {formatNumber(item.protein_g)} · C{" "}
           {formatNumber(item.carbs_g)} · G {formatNumber(item.fat_g)}
           {item.preparation ? ` · ${item.preparation}` : ""}

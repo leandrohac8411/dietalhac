@@ -374,7 +374,7 @@ export function useGenerateDiet() {
       const candidates = Array.from({ length: 1200 }, () => generateMealPlan(generationInput));
       // Plano B: se nada passa na tolerância normal, aceita a melhor combinação dentro de
       // uma tolerância mais folgada em vez de falhar a geração inteira.
-      let viableCandidates: PlanMeal[] = [];
+      let viableCandidates: PlanMeal[][] = [];
       for (const looseness of [1, 1.5, 2.2]) {
         viableCandidates = candidates.filter((candidate) =>
           mealPlanWithinTolerance(candidate, targets, looseness),
@@ -541,9 +541,20 @@ export function useUpdateMealItem() {
 export function useSwapMealItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ item, substitute }: { item: MealItemRow; substitute: FoodItem }) => {
+    mutationFn: async ({
+      item,
+      substitute,
+      grams: gramsOverride,
+    }: {
+      item: MealItemRow;
+      substitute: FoodItem;
+      /** Porção equivalente já calculada (ex.: pela mesma proteína); senão, mesmas calorias. */
+      grams?: number;
+    }) => {
       const perGram = substitute.portion > 0 ? substitute.calories / substitute.portion : 0;
-      const grams = perGram > 0 && item.calories > 0 ? item.calories / perGram : substitute.portion;
+      const grams =
+        gramsOverride ??
+        (perGram > 0 && item.calories > 0 ? item.calories / perGram : substitute.portion);
       const { error } = await supabase
         .from("meal_items")
         .update({

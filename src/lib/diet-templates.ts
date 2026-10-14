@@ -128,7 +128,10 @@ const MAIN_PROTEINS: TemplateOption[] = [
     max: 160,
     prep: "Hidratada e refogada",
   }),
-  opt("Peito de frango grelhado", 150, { step: 10, min: 100, max: 230, prep: "Grelhado" }),
+  opt("Peito de frango grelhado", 150, { step: 10, min: 110, max: 230, prep: "Grelhado" }),
+  opt("Coxa de frango sem pele assada", 120, { step: 10, min: 90, max: 200, prep: "Assada" }),
+  opt("Carne de panela (músculo)", 100, { step: 10, min: 80, max: 160, prep: "Cozida" }),
+  opt("Merluza grelhada", 150, { step: 10, min: 100, max: 230, prep: "Grelhada" }),
   opt("Sobrecoxa de frango sem pele", 120, { step: 10, min: 90, max: 200, prep: "Assada" }),
   opt("Patinho moído cozido", 110, { step: 10, min: 80, max: 180, prep: "Refogado" }),
   opt("Alcatra grelhada", 110, { step: 10, min: 80, max: 180, prep: "Grelhada" }),
@@ -163,14 +166,14 @@ const OIL: TemplateSlot = {
 };
 
 const RICE: TemplateOption[] = [
-  opt("Arroz branco cozido", 150, { step: 10, min: 80, max: 260, prep: "Cozido" }),
-  opt("Arroz integral cozido", 150, { step: 10, min: 80, max: 260, prep: "Cozido" }),
-  opt("Arroz parboilizado cozido", 150, { step: 10, min: 80, max: 260, prep: "Cozido" }),
+  opt("Arroz branco cozido", 200, { step: 10, min: 120, max: 300, prep: "Cozido" }),
+  opt("Arroz integral cozido", 200, { step: 10, min: 120, max: 300, prep: "Cozido" }),
+  opt("Arroz parboilizado cozido", 200, { step: 10, min: 120, max: 300, prep: "Cozido" }),
 ];
 
 const BEANS: TemplateOption[] = [
-  opt("Feijão carioca cozido", 100, { step: 10, min: 60, max: 180, prep: "Cozido" }),
-  opt("Feijão preto cozido", 100, { step: 10, min: 60, max: 180, prep: "Cozido" }),
+  opt("Feijão carioca cozido", 140, { step: 10, min: 80, max: 200, prep: "Cozido" }),
+  opt("Feijão preto cozido", 140, { step: 10, min: 80, max: 200, prep: "Cozido" }),
 ];
 
 const OTHER_CARBS: TemplateOption[] = [
@@ -181,10 +184,55 @@ const OTHER_CARBS: TemplateOption[] = [
   opt("Inhame cozido", 150, { step: 10, min: 80, max: 250, prep: "Cozido" }),
 ];
 
+const JUICES: TemplateOption[] = [
+  opt("Suco de uva integral", 200, { step: 50, min: 100, max: 300, prep: "" }),
+  opt("Suco de laranja integral", 200, { step: 50, min: 100, max: 300, prep: "" }),
+  opt("Suco de maçã integral", 200, { step: 50, min: 100, max: 300, prep: "" }),
+];
+
 // ---- Modelos por tipo de refeição ---------------------------------------------
 
 export const MEAL_TEMPLATES: Record<MealKind, MealTemplate[]> = {
   breakfast: [
+    {
+      id: "cafe-pao-requeijao-peru",
+      slots: [
+        { role: "carb", opts: BREADS },
+        { role: "dairy", opts: CHEESES.slice(1, 5) },
+        { role: "protein", opts: LIGHT_FILLINGS.slice(2) },
+        { role: "fruit", opts: FRUITS },
+      ],
+    },
+    {
+      id: "cafe-cuscuz-ovo",
+      slots: [
+        {
+          role: "carb",
+          opts: [opt("Cuscuz de milho cozido", 100, { step: 10, min: 60, max: 200, prep: "" })],
+        },
+        { role: "protein", opts: EGGS },
+        { role: "dairy", opts: CHEESES, optional: true },
+        { role: "fruit", opts: BANANA_FIRST },
+      ],
+    },
+    {
+      id: "cafe-vitamina",
+      slots: [
+        {
+          role: "dairy",
+          opts: [
+            opt("Leite desnatado", 200, { step: 50, min: 150, max: 300 }),
+            opt("Leite desnatado sem lactose", 200, { step: 50, min: 150, max: 300 }),
+          ],
+        },
+        { role: "fruit", opts: [opt("Banana prata", 100, { step: 50, min: 50, max: 200 })] },
+        {
+          role: "carb",
+          opts: [opt("Aveia em flocos", 30, { step: 5, min: 20, max: 50, prep: "" })],
+        },
+        { role: "protein", opts: WHEY, optional: true },
+      ],
+    },
     {
       id: "cafe-vegano",
       veganOnly: true,
@@ -354,38 +402,45 @@ export const MEAL_TEMPLATES: Record<MealKind, MealTemplate[]> = {
   ],
   pre: [
     {
-      id: "pre-vegano",
-      veganOnly: true,
-      slots: [
-        { role: "fruit", opts: [opt("Banana prata", 120, { step: 60, min: 60, max: 240 })] },
-        {
-          role: "carb",
-          opts: [opt("Aveia em flocos", 30, { step: 5, min: 20, max: 60, prep: "" })],
-        },
-        { role: "protein", opts: VEGAN_POWDER },
-      ],
-    },
-    {
       id: "pre-pao-fruta",
       slots: [
         { role: "carb", opts: BREADS },
         { role: "dairy", opts: CHEESES.slice(0, 4), optional: true },
         { role: "fruit", opts: BANANA_FIRST },
+        { role: "extra", opts: JUICES, optional: true },
       ],
     },
     {
-      id: "pre-banana-aveia-whey",
+      id: "pre-pao-pasta-suco",
+      slots: [
+        { role: "carb", opts: BREADS },
+        {
+          role: "fat",
+          opts: [opt("Pasta de amendoim", 15, { step: 5, min: 10, max: 20, prep: "" })],
+        },
+        { role: "extra", opts: JUICES },
+      ],
+    },
+    {
+      id: "pre-banana-aveia",
       slots: [
         { role: "fruit", opts: [opt("Banana prata", 120, { step: 60, min: 60, max: 240 })] },
         {
           role: "carb",
-          opts: [opt("Aveia em flocos", 30, { step: 5, min: 20, max: 60, prep: "" })],
+          opts: [opt("Aveia em flocos", 40, { step: 5, min: 20, max: 60, prep: "" })],
         },
-        { role: "protein", opts: WHEY },
+        {
+          role: "protein",
+          optional: true,
+          opts: [
+            opt("Whey protein isolado", 20, { step: 10, min: 20, max: 30, prep: "" }),
+            opt("Whey protein concentrado", 20, { step: 10, min: 20, max: 30, prep: "" }),
+          ],
+        },
       ],
     },
     {
-      id: "pre-tapioca-banana",
+      id: "pre-tapioca-fruta",
       slots: [
         {
           role: "carb",
@@ -394,26 +449,26 @@ export const MEAL_TEMPLATES: Record<MealKind, MealTemplate[]> = {
             opt("Cuscuz de milho cozido", 100, { step: 10, min: 60, max: 200, prep: "" }),
           ],
         },
-        { role: "protein", opts: [...EGGS.slice(0, 1), ...LIGHT_FILLINGS.slice(0, 1)] },
+        { role: "dairy", opts: CHEESES.slice(2, 5) },
         { role: "fruit", opts: BANANA_FIRST },
+      ],
+    },
+    {
+      id: "pre-iogurte-granola",
+      slots: [
+        { role: "dairy", opts: YOGURTS },
+        {
+          role: "carb",
+          opts: [
+            opt("Granola sem açúcar", 30, { step: 5, min: 20, max: 50, prep: "" }),
+            opt("Aveia em flocos", 30, { step: 5, min: 20, max: 50, prep: "" }),
+          ],
+        },
+        { role: "fruit", opts: FRUITS },
       ],
     },
   ],
   post: [
-    {
-      id: "pos-vegano",
-      veganOnly: true,
-      slots: [
-        { role: "protein", opts: VEGAN_POWDER },
-        {
-          role: "fat",
-          optional: true,
-          opts: [opt("Pasta de amendoim", 15, { step: 5, min: 10, max: 30, prep: "" })],
-        },
-        { role: "fruit", opts: BANANA_FIRST },
-        { role: "carb", opts: BREADS.slice(1), optional: true },
-      ],
-    },
     {
       id: "pos-ovos-pao-fruta",
       slots: [
@@ -435,11 +490,70 @@ export const MEAL_TEMPLATES: Record<MealKind, MealTemplate[]> = {
       ],
     },
     {
+      id: "pos-iogurte-whey-fruta",
+      slots: [
+        { role: "dairy", opts: YOGURTS },
+        { role: "protein", opts: WHEY },
+        { role: "fruit", opts: FRUITS },
+        {
+          role: "carb",
+          optional: true,
+          opts: [
+            opt("Aveia em flocos", 20, { step: 5, min: 15, max: 40, prep: "" }),
+            opt("Granola sem açúcar", 20, { step: 5, min: 15, max: 40, prep: "" }),
+          ],
+        },
+      ],
+    },
+    {
       id: "pos-recheado",
       slots: [
         { role: "carb", opts: BREADS_OR_TAPIOCA },
         { role: "protein", opts: LIGHT_FILLINGS.slice(0, 2) },
         { role: "dairy", opts: CHEESES.slice(2, 4) },
+        { role: "fruit", opts: BANANA_FIRST, optional: true },
+      ],
+    },
+    {
+      id: "pos-omelete-batata",
+      slots: [
+        {
+          role: "protein",
+          opts: [opt("Omelete simples", 100, { step: 50, min: 100, max: 200, prep: "" })],
+        },
+        {
+          role: "carb",
+          opts: [
+            opt("Batata doce cozida", 120, { step: 10, min: 80, max: 250, prep: "Cozida" }),
+            opt("Mandioca cozida", 100, { step: 10, min: 60, max: 200, prep: "Cozida" }),
+          ],
+        },
+        { role: "fruit", opts: BANANA_FIRST, optional: true },
+      ],
+    },
+    {
+      id: "pos-crepioca",
+      slots: [
+        {
+          role: "carb",
+          opts: [opt("Tapioca (goma hidratada)", 40, { step: 10, min: 30, max: 90, prep: "" })],
+        },
+        {
+          role: "protein",
+          opts: [opt("Ovo inteiro", 50, { step: 50, min: 50, max: 100, prep: "" })],
+        },
+        {
+          role: "extra",
+          opts: [
+            opt("Peito de frango desfiado", 60, {
+              step: 10,
+              min: 40,
+              max: 120,
+              prep: "Cozido e desfiado",
+            }),
+          ],
+        },
+        { role: "dairy", opts: CHEESES.slice(2, 4), optional: true },
         { role: "fruit", opts: BANANA_FIRST, optional: true },
       ],
     },
