@@ -1213,14 +1213,15 @@ function Onboarding() {
                   onChange={(v) => set("alcohol_intake", v)}
                 />
               </Field>
-              <Field label="Água por dia (ml)" hint="Opcional">
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={form.water_intake_ml}
-                  onChange={(e) => set("water_intake_ml", e.target.value)}
-                  className="max-w-40"
-                />
+              <Field
+                label="Meta de água"
+                hint="Calculada automaticamente pelo seu peso (~35 ml por kg)"
+              >
+                <p className="text-sm font-medium">
+                  {Number(form.current_weight_kg) > 0
+                    ? `${((Math.round((Number(form.current_weight_kg) * 35) / 50) * 50) / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L por dia`
+                    : "Calculada a partir do seu peso"}
+                </p>
               </Field>
               <Field
                 label="Suplementos em uso"

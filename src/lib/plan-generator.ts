@@ -583,6 +583,10 @@ function portionBounds(food: FoodRow): [number, number] {
   if (name.includes("pasta de amendoim")) return [10, 20];
   if (name.includes("cottage")) return [60, 150];
   if (name.includes("queijo")) return [20, 60];
+  // Frios: ninguém come 150g de presunto/peru fatiado num lanche.
+  if (name.includes("presunto") || name.includes("peito de peru") || name.includes("mortadela"))
+    return [20, 60];
+  if (name.includes("clara")) return [30, 100];
   if (name.includes("iogurte") || name.includes("skyr")) return [100, 250];
   if (name.includes("azeite") || name.includes("oleo")) return [0, 10];
   if (name.includes("pao")) return [25, 100];
@@ -696,6 +700,9 @@ function repairProteinSelection(
     .filter(
       (food) =>
         proteinCategories.includes(food.category) &&
+        // Só trocas por proteína do dia a dia (nada de clara solta ou seitan
+        // no lanche) — mesma lista usada nos slots restritos de pré/pós.
+        PROTEIN_ONLY_FALLBACK.some((name) => food.name.includes(name)) &&
         food.protein_g / Math.max(1, food.portion) >= 0.08 &&
         fatPerProtein(food) <= 0.3,
     )
@@ -939,6 +946,13 @@ export function mealPlanNaturalnessPenalty(plan: PlanMeal[]): number {
 
     if (meal.items.length < 2) penalty += 0.8;
     if (isMainMeal && !hasProtein) penalty += 1.2;
+    // Almoço brasileiro: arroz e feijão são o esperado; sem eles, o cardápio
+    // "fecha a conta" mas parece estranho pra maior parte das pessoas.
+    if (baseName === "Almoço") {
+      if (!names.some((name) => name.includes("arroz"))) penalty += 0.4;
+      if (!names.some((name) => name.includes("feijao") || name.includes("lentilha")))
+        penalty += 0.3;
+    }
     if (isMainMeal && !hasMainSide) penalty += 0.5;
     if (isBreakfastOrSnack && hasBreadLike && !hasProtein) penalty += 0.9;
     if (isBreakfastOrSnack && hasBreadLike && hasColdCuts && !hasCheese) penalty += 0.75;

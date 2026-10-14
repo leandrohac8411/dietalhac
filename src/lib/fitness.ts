@@ -345,13 +345,22 @@ export function deriveMealTimes(input: {
   let sleep = parseHM(input.sleep) ?? 1380; // 23:00
   if (sleep <= wake) sleep += 1440;
 
-  const first = wake + 45;
-  const last = Math.max(first + (count - 1) * 60, sleep - 60);
-
+  // Horários âncora do dia a dia brasileiro (café logo ao acordar, almoço perto
+  // do meio-dia, jantar no começo da noite) em vez de dividir o dia em fatias
+  // iguais — que jogava o almoço pras 15h e o jantar pras 22h30. Cada refeição
+  // respeita um intervalo mínimo da anterior (cobre quem acorda tarde).
+  const lunch = 12 * 60 + 30;
+  const dinner = 19 * 60 + 30;
+  const anchors: Record<number, number[]> = {
+    3: [wake + 30, lunch, dinner],
+    4: [wake + 30, lunch, 16 * 60, dinner],
+    5: [wake + 30, 10 * 60, lunch, 16 * 60, dinner],
+    6: [wake + 30, 10 * 60, lunch, 16 * 60, dinner, Math.min(dinner + 150, sleep - 45)],
+  };
   const times: number[] = [];
-  for (let i = 0; i < count; i += 1) {
-    times.push(first + Math.round(((last - first) * i) / (count - 1)));
-  }
+  (anchors[count] ?? anchors[5]!).forEach((t, i) => {
+    times.push(i === 0 ? t : Math.max(t, times[i - 1]! + 90));
+  });
 
   // Desvia da janela de treino e garante refeição pós-treino.
   let tStart = parseHM(input.trainingTime);
@@ -366,7 +375,7 @@ export function deriveMealTimes(input: {
       let idx = 0;
       let best = Infinity;
       times.forEach((t, i) => {
-        const d = Math.abs(t - tStart!);
+        const d = Math.abs(t - post);
         if (d < best) {
           best = d;
           idx = i;
