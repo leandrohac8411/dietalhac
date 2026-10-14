@@ -151,6 +151,29 @@ function allowedByRestrictions(food: FoodRow, restrictions: string[]): boolean {
   return true;
 }
 
+// Alimentos que pouca gente come no dia a dia — só entram se a pessoa pedir
+// ("Incluir alimentos incomuns") ou se a dieta (vegana/vegetariana) depender deles.
+const UNCOMMON_FOODS = [
+  "Lentilha",
+  "Chia",
+  "Seitan",
+  "Tofu",
+  "Tempeh",
+  "Linhaça",
+  "Gergelim",
+  "Quinoa",
+  "Grão-de-bico",
+  "Edamame",
+  "Proteína texturizada",
+  "Proteína vegana",
+  "Fígado",
+  "Semente de girassol",
+  "Skyr",
+  "Kefir",
+  "Amaranto",
+  "Espirulina",
+];
+
 export function eligibleDietFoods(params: {
   foods: FoodRow[];
   restrictions?: string[] | null;
@@ -160,14 +183,31 @@ export function eligibleDietFoods(params: {
 }): FoodRow[] {
   const restrictions = params.restrictions ?? [];
   const supplementTokens = preferenceTokens(params.supplements);
+  const allowUncommon = restrictions.some((r) =>
+    ["incluir_incomuns", "vegano", "vegetariano"].includes(r),
+  );
   return params.foods.filter(
     (food) =>
       allowedByRestrictions(food, restrictions) &&
+      (allowUncommon || !UNCOMMON_FOODS.some((name) => food.name.includes(name))) &&
       !blockedByText(food.name, params.dislikes) &&
       !blockedCategory(food, params.dislikes) &&
       !blockedByText(food.name, params.allergies) &&
       (!isSupplement(food) ||
         supplementTokens.some((token) => deburr(food.name.toLowerCase()).includes(token))),
+  );
+}
+
+/** "Grelhado ou assado" não faz sentido pra whey, frios ou seitan. */
+function hasPreparation(food: FoodRow): boolean {
+  const name = deburr(food.name.toLowerCase());
+  if (isSupplement(food)) return false;
+  return !(
+    name.includes("presunto") ||
+    name.includes("peito de peru fatiado") ||
+    name.includes("mortadela") ||
+    name.includes("seitan") ||
+    name.includes("tofu")
   );
 }
 
@@ -184,7 +224,7 @@ function scaleFood(food: FoodRow, grams: number, preparation?: string): PlanFood
     fat_g: Math.round(food.fat_g * ratio * 10) / 10,
     fiber_g: Math.round(food.fiber_g * ratio * 10) / 10,
     category: food.category,
-    preparation,
+    preparation: hasPreparation(food) ? preparation : undefined,
   };
 }
 
@@ -331,7 +371,6 @@ const MAINSTREAM_CARB = [
   "Macarrão",
   "Pão",
   "Banana",
-  "Tapioca",
   "Cuscuz",
   "Aveia",
   "Milho",
@@ -342,7 +381,7 @@ function archetype(name: string, lowCarb: boolean, role: MealRole, fruity = fals
     return [
       {
         cats: ["carboidrato", "fruta"],
-        prefer: ["Banana", "Pão", "Tapioca", "Aveia"],
+        prefer: ["Banana", "Pão", "Aveia"],
         only: [...MAINSTREAM_CARB, "Mamão", "Maçã", "Morango"],
       },
       {
@@ -362,8 +401,8 @@ function archetype(name: string, lowCarb: boolean, role: MealRole, fruity = fals
         },
         {
           cats: ["carboidrato", "fruta"],
-          prefer: ["Banana", "Pão", "Tapioca"],
-          only: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Tapioca", "Cuscuz"],
+          prefer: ["Banana", "Pão"],
+          only: ["Banana", "Mamão", "Maçã", "Morango", "Aveia", "Pão", "Cuscuz"],
         },
       ];
     return [

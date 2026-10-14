@@ -114,6 +114,7 @@ const RESTRICTIONS: Opt[] = [
   { v: "sem_carne_vermelha", l: "Sem carne vermelha" },
   { v: "carnivora", l: "Carnívora" },
   { v: "frutas", l: "Rica em frutas e sucos" },
+  { v: "incluir_incomuns", l: "Incluir alimentos incomuns (lentilha, chia, seitan...)" },
 ];
 const SUPPLEMENT_OPTIONS: Opt[] = [
   { v: "Whey protein", l: "Whey protein" },
